@@ -1,0 +1,289 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\ServiceRequest;
+use App\Models\KnowledgeBase;
+use Illuminate\Support\Facades\Cache;
+use Google\Client; 
+
+class AIFormController extends Controller
+{
+    // ১. গুগল থেকে লাইভ টোকেন নেওয়া
+    private function getGoogleToken() {
+        $client = new Client();
+        $client->setAuthConfig(storage_path('app/ai-calls-center-70b747d09902.json'));
+        $client->addScope('https://www.googleapis.com/auth/cloud-platform');
+        $token = $client->fetchAccessTokenWithAssertion();
+        return $token['access_token'];
+    }
+
+    // ২. ফ্রন্টএন্ডে টোকেন এবং প্রম্পট পাঠানো (মাস্টারমাইন্ড আপডেটেড)
+    public function getLiveSetup()
+    {
+        try {
+            $token = $this->getGoogleToken();
+            
+            // ১. IVR Key ধরা 
+            $keyPress = request()->input('ivr_key', '1'); 
+            $service = \App\Models\IvrService::where('key_press', $keyPress)->where('is_active', true)->first();
+            if (!$service) {
+                $service = \App\Models\IvrService::where('is_active', true)->first();
+            }
+
+            // 🚀 ২. ড্যাশবোর্ড থেকে কোম্পানির গ্লোবাল প্রোফাইল টেনে আনা
+            $company = \App\Models\CompanyProfile::where('is_active', true)->first();
+            
+            $companyName = $company ? $company->company_name : "আমাদের কোম্পানি";
+            $aboutCompany = $company ? "কোম্পানির বিস্তারিত: " . $company->about_company . "\n" : "";
+            $globalPersona = $company ? $company->global_persona : "তুমি একজন প্রফেশনাল কাস্টমার সাপোর্ট এজেন্ট।";
+            
+            // 🚀 ৩. কন্টাক্ট ইনফো (আনলিমিটেড ফিল্ডস) রেডি করা
+            $contactInfoText = "";
+            if ($company && $company->contact_info) {
+                $contactInfoText = "কোম্পানির অন্যান্য তথ্য (প্রয়োজনে কাস্টমারকে দেবে):\n";
+                foreach ($company->contact_info as $key => $value) {
+                    $contactInfoText .= "- {$key}: {$value}\n";
+                }
+            }
+
+            // 🚀 ৪. ডাইনামিক রুলস ফিল্টার করা (যেগুলো Global অথবা এই নির্দিষ্ট IVR এর জন্য)
+            $dynamicRulesText = "";
+            if ($company && $company->dynamic_instructions) {
+                $dynamicRulesText = "\nবিশেষ নিয়মাবলি (অবশ্যই মানতে হবে):\n";
+                foreach ($company->dynamic_instructions as $rule) {
+                    if ($rule['is_active']) {
+                        // যদি রুলসটা গ্লোবাল হয়, অথবা বর্তমান সার্ভিসের সাথে মিলে যায়
+                        if (empty($rule['ivr_service_id']) || $rule['ivr_service_id'] == ($service ? $service->id : null)) {
+                            $dynamicRulesText .= "👉 {$rule['rule_title']}: {$rule['rule_details']}\n";
+                        }
+                    }
+                }
+            }
+
+            $aiName = ($service && $service->ai_name) ? "তোমার নাম {$service->ai_name}। " : "";
+            
+            // 🚀 ৫. গ্রিটিংস কন্ট্রোল (Company Profile থেকে)
+            $aiGreeting = "";
+            $greetingBehavior = $company ? $company->greeting_behavior : 'ai_first';
+
+            if ($service && $service->greeting_message) {
+                if ($greetingBehavior == 'ai_first') {
+                    $aiGreeting = "কল আসার পর প্রথমে আপনি এক্সাক্টলি এটা বলবেন: '{$service->greeting_message}'\n\n";
+                } else {
+                    $aiGreeting = "কাস্টমার 'হ্যালো' বা কোনো কথা বললে, আপনি প্রথমে এক্সাক্টলি এটা বলবেন: '{$service->greeting_message}'\n\n";
+                }
+            }
+
+            // ৬. কাস্টমার ডাটা কালেকশন লজিক (স্মার্ট আপডেট)
+            $fields_instruction = "";
+            $mandatory_fields = [];
+            if ($service && $service->required_fields) {
+                $fields_instruction = "\n\n[কাস্টমার ডাটা কালেকশন]\nআপনাকে কাস্টমারের কাছ থেকে এই সব তথ্য যোগ করতে হবে:\n";
+                foreach ($service->required_fields as $field) {
+                    $mandatory = $field['is_mandatory'] ? '(জরুরি)' : '(ইচ্ছামতো)';
+                    $fields_instruction .= "• {$field['field_name']} {$mandatory}: {$field['ai_instruction']}\n";
+                    if ($field['is_mandatory']) {
+                        $mandatory_fields[] = $field['field_name'];
+                    }
+                }
+            }
+            $mandatory_fields_string = implode(', ', $mandatory_fields);
+
+            // প্রোডাক্ট নলেজবেস
+            $products = KnowledgeBase::whereNotIn('category', ['Instruction', 'persona', 'এআই ব্রেইন (Persona/Rules)', 'Persona/Rules', 'Greeting'])->where('is_active', true)->get();
+            $kbText = "প্রোডাক্ট ইনফো:\n";
+            foreach ($products as $p) {
+                $kbText .= "- " . $p->category . ": " . (is_array($p->answer) ? json_encode($p->answer, JSON_UNESCAPED_UNICODE) : $p->answer) . "\n";
+            }
+
+            // 🚀 ৭. ফাইনাল সুপার প্রম্পট (Partial Data Save Logic সহ)
+            $systemPrompt = "কোম্পানির নাম: {$companyName}\n" .
+            $aboutCompany . 
+            $contactInfoText . "\n\n" .
+            $aiName . 
+            $aiGreeting . 
+            "আচরণ ও গাইডলাইন: " . $globalPersona . "\n" .
+            $dynamicRulesText . 
+            $fields_instruction . "
+            
+সতর্কতা: তুমি এআই বা বট, এটা কখনোই বলবে না।
+
+নলেজবেস:
+" . $kbText . "
+
+আপনার কঠোর দায়িত্ব (SACRED DUTY):
+১. কাস্টমারকে একবারে শুধু একটি প্রশ্ন করবেন। একটির জবাব পেয়ে তারপর পরবর্তী প্রশ্ন।
+२. আপনার লক্ষ্য [ {$mandatory_fields_string} ] এই গুরুত্বপূর্ণ তথ্য সংগ্রহ করা। কিন্তু কাস্টমার না দিতে চাইলে বা কল শেষ করতে চাইলে, জোর-জবরদস্তি করবেন না।
+३. 🚀 কল শেষ হওয়ার সময় (কাস্টমার বিদায় নেবেন বা আর কথা করবেন না): আপনি MUST টুল কল করবেন `create_ticket`! যা তথ্য পেয়েছেন সেটাই save হবে, কোনো ম্যাচিং বা কল্পনা নেই।
+४. কাস্টমার যখন কিছু বলে, আগে তা বুঝে নিন (যেমন: 'জি বুঝলাম'), তারপর পরবর্তী কথা বলুন।
+५. 🚨 কোনো Fake Data নেই, কোনো Default Value নেই - শুধুই বাস্তব কাস্টমার ডাটা।
+৫. টুল কল করার পর কাস্টমারকে বলবে 'আপনার রিকোয়েস্ট সিস্টেমে সেভ করা হয়েছে। ধন্যবাদ।'";
+
+            return response()->json([
+                'status' => 'success',
+                'token' => $token,
+                'prompt' => $systemPrompt,
+                'project_id' => 'ai-calls-center' 
+            ]);
+            
+        } catch (\Throwable $e) { 
+            return response()->json([
+                'status' => 'error', 
+                'message' => 'Line ' . $e->getLine() . ': ' . $e->getMessage()
+            ]);
+        }
+    }
+    
+    // 🚀 লাইভ কল থেকে আসা ডাটা নতুন টেবিলে সেভ করার ফাংশন (ফিক্সড)
+    public function saveTicketLive(\Illuminate\Http\Request $request)
+    {
+        try {
+            $ivrKey = $request->input('ivr_key', '1'); 
+            $service = \App\Models\IvrService::where('key_press', $ivrKey)->where('is_active', true)->first();
+
+            // পুরনো AiTicket এর বদলে আমাদের নতুন ServiceRequest টেবিলে সেভ হচ্ছে
+            $ticket = new \App\Models\ServiceRequest();
+            
+            $ticket->ivr_service_id = $service ? $service->id : null; 
+            $ticket->extracted_data = $request->all(); // ডায়নামিক ডাটা সেভের জন্য
+            
+            // ✅ শুধুমাত্র প্রকৃত ডাটা স্টোর করো - কোনো ফেক/প্লেসহোল্ডার নয়
+            $ticket->customer_name = !empty($request->customer_name) && $request->customer_name !== 'N/A' ? trim($request->customer_name) : null;
+            $ticket->mobile_number = !empty($request->mobile_number) && $request->mobile_number !== 'N/A' ? trim($request->mobile_number) : null;
+            $ticket->alt_mobile_number = !empty($request->alt_mobile_number) && $request->alt_mobile_number !== 'N/A' ? trim($request->alt_mobile_number) : null;
+            $ticket->address = !empty($request->address) && $request->address !== 'N/A' ? trim($request->address) : null;
+            $ticket->district = !empty($request->district) && $request->district !== 'N/A' ? trim($request->district) : null;
+            $ticket->product_name = !empty($request->product_name) && $request->product_name !== 'N/A' ? trim($request->product_name) : null;
+            $ticket->barcode = !empty($request->barcode) && $request->barcode !== 'N/A' ? trim($request->barcode) : null;
+            $ticket->problem_description = !empty($request->problem_description) && $request->problem_description !== 'N/A' ? trim($request->problem_description) : null;
+            $ticket->call_transcript = $request->input('transcript', 'Live Tool Call Ticket'); 
+            $ticket->status = 'Pending';
+            
+            $ticket->save();
+
+            return response()->json(['status' => 'success']);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('AI Ticket Save Error: ' . $e->getMessage());
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()]);
+        }
+    }
+
+    public function viewAiTickets()
+    {
+        $tickets = \App\Models\AiTicket::orderBy('id', 'desc')->get();
+        return view('ai_tickets_list', compact('tickets'));
+    }
+
+    public function recognizeSpeech(\Illuminate\Http\Request $request)
+    {
+        // ... (আপনার আগের অডিও ফাংশনগুলো এখানে থাকবে, সেগুলো বদলাতে হবে না) ...
+    }
+
+    public function processAudioData(\Illuminate\Http\Request $request)
+    {
+        // ... (আপনার আগের অডিও ফাংশনগুলো এখানে থাকবে, সেগুলো বদলাতে হবে না) ...
+    }
+
+    // 🚀 শুধু টেক্সট প্রসেস করে ডাটাবেস বানানোর ফাংশন (Smart JSON Cleaner সহ ফিক্সড)
+    public function processFinalText(\Illuminate\Http\Request $request)
+    {
+        try {
+            $transcript = $request->text;
+            $token = $this->getGoogleToken(); 
+            $projectId = 'ai-calls-center'; 
+
+            $ivrKey = $request->input('ivr_key', '1'); 
+            $service = \App\Models\IvrService::where('key_press', $ivrKey)->where('is_active', true)->first();
+            if (!$service) {
+                $service = \App\Models\IvrService::where('is_active', true)->first();
+            }
+
+            if (!$token || empty($transcript)) {
+                return response()->json(['status' => 'error', 'message' => 'কোনো টেক্সট পাওয়া যায়নি।']);
+            }
+
+            // 🚀 এআইকে কী কী ফিল্ড এক্সট্র্যাক্ট করতে হবে তার লিস্ট
+            $expectedKeysArray = ['customer_name', 'mobile_number', 'address', 'product_name', 'problem_description'];
+            if ($service && $service->required_fields) {
+                foreach ($service->required_fields as $field) {
+                    $expectedKeysArray[] = $field['field_name']; 
+                }
+            }
+            $expectedKeysString = implode(', ', $expectedKeysArray);
+
+            $url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/{$projectId}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent";
+            $prompt = "🎯 কাস্টমার থেকে ডাটা বের করার এক্সট্রিম স্ট্রিক্ট নিয়ম:\n\n📞 কাস্টমার কি বলেছেন:\n\"{$transcript}\"\n\n⛔ সবচেয়ে গুরুত্বপূর্ণ নিয়ম (ZERO TOLERANCE):\n1️⃣ এই ট্র‍্যান্সক্রিপ্টে যা যা আছে, শুধুই অন্তর্ভুক্ত করো। একটি শব্দও অতিরিক্ত যোগ করবে না।\n2️⃣ যা কথায় নেই তা কল্পনা করবে না। কোনো অনুমান নেই, কোনো ম্যাচিং নেই।\n3️⃣ কোনো 'N/A', কোনো ডিফল্ট মূল্য, কোনো placeholder নেই। যা বলা হয়েছে শুধু সেটা।\n4️⃣ যদি কিছু না বলা হয় = একেবারে স্কিপ করো (JSON এ সেই key-value দিবে না)।\n5️⃣ বাংলাদেশী নাম এবং উচ্চারণ সম্মান করো - ঠিক যেভাবে কথায় এসেছে।\n\n✅ এক্সট্র্যাক্ট করার ফিল্ড:\n{$expectedKeysString}\n\n📋 সঠিক উদাহরণ:\n- কাস্টমার: 'আমার নাম কাবির'\n  ✔️ JSON: {\"customer_name\":\"কাবির\"}\n- কাস্টমার: 'আমি ঢাকায় আছি, সমস্যা হয়েছে'\n  ✔️ JSON: {\"address\":\"ঢাকা\",\"problem_description\":\"সমস্যা হয়েছে\"}\n- কাস্টমার: 'হ্যালো'\n  ✔️ JSON: {} (কিছু বলেনি, একেবারে খালি)\n\n🚨 ভুল যা কখনো করবে না:\n❌ গেস করা: 'আমার নাম কাবির' → নাম লেখে "মোহাম্মদ কাবির"\n❌ ডিফল্ট মূল্য: "N/A", "Unknown", "Not Provided" - এগুলো নয়\n❌ অতিরিক্ত field: কাস্টমার শুধু নাম বলেছে, তারপর district বা product যোগ করবে না\n\n📤 JSON Response ONLY:\nশুধুমাত্র valid JSON, অন্য কোনো টেক্সট নয়। কোনো মার্কডাউন (```json), কোনো ব্যাখ্যা।";
+
+
+
+            $response = \Illuminate\Support\Facades\Http::withToken($token)
+                ->post($url, [
+                    'contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]],
+                    'generationConfig' => ['responseMimeType' => 'application/json']
+                ]);
+
+            if ($response->successful()) {
+                $content = $response->json('candidates.0.content.parts.0.text');
+                
+                // 🚀 ম্যাজিক ফিক্স: জেমিনি মার্কডাউন (```json) দিলে সেটা পরিষ্কার করা
+                $cleanContent = str_replace(['```json', '```'], '', $content);
+                $cleanContent = trim($cleanContent);
+                
+                // যদি JSON না হয় তাহলে এরর
+                if (empty($cleanContent) || !is_string($cleanContent)) {
+                    throw new \Exception('Empty response from AI');
+                }
+                
+                $data = json_decode($cleanContent, true);
+
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    throw new \Exception('JSON Decode Error: ' . json_last_error_msg());
+                }
+                
+                // ✅ JSON validation - সব ফিল্ড string হতে হবে, না হলে N/A রাখো
+                if (is_array($data)) {
+                    foreach ($data as $key => &$value) {
+                        // যদি array বা object হয়, তাহলে এটা জেনারেটেড ডাটা
+                        if (is_array($value) || is_object($value)) {
+                            $value = 'N/A';
+                        }
+                        // convert to string
+                        $value = (string)$value;
+                        // এখনও 'N/A' থাকলে তাহলে skipp করো
+                        if ($value === 'N/A' || empty(trim($value))) {
+                            unset($data[$key]);
+                        }
+                    }
+                }
+
+                $ticket = new \App\Models\ServiceRequest();
+                
+                $ticket->ivr_service_id = $service ? $service->id : null; 
+                $ticket->extracted_data = $data; 
+                
+                // ✅ শুধুমাত্র প্রকৃত ডাটা স্টোর করো - N/A কোথাও থাকবে না
+                $ticket->customer_name = !empty($data['customer_name']) ? trim($data['customer_name']) : null;
+                $ticket->mobile_number = !empty($data['mobile_number']) ? trim($data['mobile_number']) : null;
+                $ticket->alt_mobile_number = !empty($data['alt_mobile_number']) ? trim($data['alt_mobile_number']) : null;
+                $ticket->address = !empty($data['address']) ? trim($data['address']) : null;
+                $ticket->district = !empty($data['district']) ? trim($data['district']) : null;
+                $ticket->product_name = !empty($data['product_name']) ? trim($data['product_name']) : null;
+                $ticket->barcode = !empty($data['barcode']) ? trim($data['barcode']) : null;
+                $ticket->problem_description = !empty($data['problem_description']) ? trim($data['problem_description']) : null;
+                $ticket->call_transcript = $transcript; 
+                $ticket->status = 'Pending';
+                
+                $ticket->save();
+
+                return response()->json(['status' => 'success']);
+            }
+
+            return response()->json(['status' => 'error', 'message' => 'Google API Error: ' . $response->body()]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Text Save Error: " . $e->getMessage());
+            return response()->json(['status' => 'error', 'message' => 'সার্ভার এরর: ' . $e->getMessage()]);
+        }
+    }
+}
