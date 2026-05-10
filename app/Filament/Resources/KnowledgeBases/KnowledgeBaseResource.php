@@ -20,11 +20,9 @@ class KnowledgeBaseResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
     
-    protected static ?string $navigationGroup = '⚙️ AI Configuration';
+    protected static string | \UnitEnum | null $navigationGroup = '⚙️ AI Configuration';
     protected static ?int $navigationSort = 2;
     protected static ?string $navigationLabel = "Knowledge Base";
-    protected static string|\UnitEnum|null $navigationGroup = 'AI সেটিংস';
-    protected static ?int $navigationSort = 1;
 
     // Navigation এ দেখাও
     protected static bool $shouldRegisterNavigation = true;

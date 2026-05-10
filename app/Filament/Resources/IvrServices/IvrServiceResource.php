@@ -23,7 +23,7 @@ class IvrServiceResource extends Resource
     protected static ?string $model = IvrService::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
-    protected static ?string $navigationGroup = '⚙️ AI Configuration';
+    protected static string | \UnitEnum | null $navigationGroup = '⚙️ AI Configuration';
     protected static ?int $navigationSort = 1;
     protected static ?string $navigationLabel = "AI Settings (IVR)";
     protected static ?string $modelLabel = 'IVR Service';

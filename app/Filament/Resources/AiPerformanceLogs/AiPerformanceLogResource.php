@@ -20,7 +20,7 @@ class AiPerformanceLogResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
     protected static ?string $navigationLabel = 'AI Performance';
-    protected static string|\UnitEnum|null $navigationGroup = '📊 Analytics & Logs';
+    protected static string | \UnitEnum | null $navigationGroup = '📊 Analytics & Logs';
     protected static ?int $navigationSort = 2;
     protected static ?string $modelLabel = 'AI Performance Log';
 

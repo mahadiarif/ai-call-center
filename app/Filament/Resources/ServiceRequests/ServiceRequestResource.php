@@ -24,7 +24,7 @@ use Filament\Actions\DeleteBulkAction;
 class ServiceRequestResource extends Resource
 {
     protected static ?string $model = ServiceRequest::class;
-    protected static ?string $navigationGroup = '📞 Call Operations';
+    protected static string | \UnitEnum | null $navigationGroup = '📞 Call Operations';
     protected static ?int $navigationSort = 1;
     protected static ?string $navigationLabel = "Service Requests";
 

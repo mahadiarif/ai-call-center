@@ -18,7 +18,7 @@ class CallLogResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPhone;
 
-    protected static ?string $navigationGroup = '📊 Analytics & Logs';
+    protected static string | \UnitEnum | null $navigationGroup = '📊 Analytics & Logs';
 
     protected static ?string $navigationLabel = 'Call Logs';
 

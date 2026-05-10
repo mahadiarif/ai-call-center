@@ -20,7 +20,7 @@ class SmsLogResource extends Resource
     protected static ?string $model = SmsLog::class;
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedEnvelope;
     protected static ?string $navigationLabel = 'SMS Logs';
-    protected static \UnitEnum|string|null $navigationGroup = '📊 Analytics & Logs';
+    protected static string | \UnitEnum | null $navigationGroup = '📊 Analytics & Logs';
     protected static ?int $navigationSort = 3;
 
     public static function table(Table $table): Table
