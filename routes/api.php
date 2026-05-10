@@ -43,6 +43,7 @@ Route::post('/bridge/register-caller',    [CallLogController::class, 'registerCa
 Route::get('/bridge/caller-by-uuid',      [CallLogController::class, 'getCallerByUuid']);
 // Legacy IP-based lookup (fallback)
 Route::get('/bridge/caller-by-ip',        [CallLogController::class, 'getCallerByIp']);
+Route::get('/bridge/customer-profile',     [CallLogController::class, 'getCustomerProfile']);
 
 // ══════════════════════════════════════════════════════════
 //  Client API Webhook — client system pushes real-time updates

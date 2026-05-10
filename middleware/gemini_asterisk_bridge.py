@@ -209,46 +209,54 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
             print(f"[PreWarm] Caller={caller_number} | Firing parallel tasks...")
             t_start = time.time()
 
+            # ── Parallel Tasks ──
+            t0 = time.time()
+            
+            # ১. IVR Setup Fetch
             if call_type == "outbound_survey" and survey_id:
-                ivr_coro = get_json(
-                    f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
-                    f"?call_type=outbound_survey&survey_id={survey_id}&caller_number={caller_number or ''}"
-                )
+                ivr_coro = get_json(f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup?call_type=outbound_survey&survey_id={survey_id}&caller_number={caller_number or ''}")
             else:
-                ivr_coro = get_json(
-                    f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
-                    f"?ivr_key={ivr_key}&caller_number={caller_number or ''}"
-                )
+                ivr_coro = get_json(f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup?ivr_key={ivr_key}&caller_number={caller_number or ''}")
 
+            # ২. Customer Profile Fetch (Personalization)
+            profile_coro = get_json(f"{LARAVEL_BASE_URL}/api/bridge/customer-profile?mobile={caller_number or ''}")
+
+            # ৩. Walton SR Search (Existing Logic)
             walton_coro = post_form(
                 "http://192.168.117.135:8080/webApiProduction/local_116_228/webCrmSrSearch.php",
-                {
-                    "CUSTOMER_MOBILE": (caller_number or "").lstrip("+"),
-                    "username": "walton",
-                    "key":      "xHj0LoH!9%4VVWYWQilrti",
-                },
+                {"CUSTOMER_MOBILE": (caller_number or "").lstrip("+"), "username": "walton", "key": "xHj0LoH!9%4VVWYWQilrti"},
                 timeout=3
             ) if (caller_number and call_type != "outbound_survey") else asyncio.sleep(0, result=None)
 
-            # সব parallel
-            t0 = time.time()
-            ivr_result, walton_result, wss_url = await asyncio.gather(
-                ivr_coro,
-                walton_coro,
-                get_vertex_wss_url(),
+            # ৪. Auth URL
+            wss_coro = get_vertex_wss_url()
+
+            ivr_result, profile_result, walton_result, wss_url = await asyncio.gather(
+                ivr_coro, profile_coro, walton_coro, wss_coro,
                 return_exceptions=True
             )
-            print(f"[PreWarm] Parallel fetch: {(time.time()-t0)*1000:.0f}ms")
+            print(f"[PreWarm] Parallel fetch done in {(time.time()-t0)*1000:.0f}ms")
 
-            # IVR process
+            # --- Process Results ---
+            
+            # IVR Setup
             if isinstance(ivr_result, Exception) or not ivr_result or not ivr_result.get("prompt"):
-                print(f"[PreWarm] IVR failed — fallback")
-                final_prompt = FALLBACK_SYSTEM_PROMPT
+                final_prompt = "You are a helpful customer service assistant for Walton. Respond in Bengali."
                 final_voice  = "Charon"
             else:
                 final_prompt = ivr_result["prompt"]
                 final_voice  = ivr_result.get("voice_gender", "Charon")
-                print(f"[PreWarm] IVR ready ({len(final_prompt)}chars) voice={final_voice}")
+
+            # Customer Profile (Personalization)
+            customer_context = ""
+            if profile_result and not isinstance(profile_result, Exception) and profile_result.get("status") == "success":
+                profile = profile_result.get("data", {})
+                name = profile.get("name", "সম্মানিত গ্রাহক")
+                last_interaction = profile.get("last_interaction", "নাই")
+                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: {name}\nমোবাইল: {caller_number}\nসর্বশেষ যোগাযোগ: {last_interaction}\n[AI: কাস্টমারকে নাম ধরে সম্ভাষণ করো এবং সুন্দরভাবে কথা শুরু করো।]\n"
+                print(f"[PreWarm] Personalized for: {name}")
+            else:
+                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: নতুন গ্রাহক\nমোবাইল: {caller_number}\n"
 
             # Walton SR process
             walton_sr_context = ""
@@ -303,7 +311,7 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
             print(f"[PreWarm] Vertex connected: {(time.time()-t1)*1000:.0f}ms")
 
             # Setup message
-            full_prompt = LANGUAGE_LOCK + final_prompt + walton_sr_context
+            full_prompt = LANGUAGE_LOCK + final_prompt + customer_context + walton_sr_context
             await vertex_ws.send(json.dumps({
                 "setup": {
                     "model": MODEL,

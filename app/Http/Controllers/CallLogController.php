@@ -306,5 +306,46 @@ class CallLogController extends Controller
             'caller_number'  => $item['caller_number'],
             'ivr_key'        => $item['ivr_key'],
         ]);
+    /**
+     * Bridge -> মোবাইল নম্বর দিয়ে কাস্টমারের প্রোফাইল ও ইতিহাস নাও
+     * GET /api/bridge/customer-profile?mobile=017XXXXXXXX
+     */
+    public function getCustomerProfile(Request $request)
+    {
+        $mobile = $request->input('mobile');
+        if (!$mobile) {
+            return response()->json(['status' => 'error', 'message' => 'Mobile number required']);
+        }
+
+        $cleanedNum = preg_replace('/\D/', '', $mobile);
+
+        // ১. কাস্টমারের নাম খোঁজো (ServiceRequest থেকে)
+        $latestSr = \App\Models\ServiceRequest::where('mobile_number', $cleanedNum)
+            ->whereNotNull('customer_name')
+            ->latest()
+            ->first();
+
+        $name = $latestSr ? $latestSr->customer_name : 'সম্মানিত গ্রাহক';
+
+        // ২. আগের হিস্ট্রি (সর্বশেষ ২টা interaction)
+        $history = \App\Models\ServiceRequest::where('mobile_number', $cleanedNum)
+            ->whereNotNull('extracted_data')
+            ->latest()
+            ->take(2)
+            ->get()
+            ->map(function ($sr) {
+                $product = $sr->extracted_data['product'] ?? $sr->ivrService?->service_name ?? 'অজানা';
+                $status  = $sr->status;
+                return "তারিখ: {$sr->created_at->format('d M')}, পণ্য: {$product}, অবস্থা: {$status}";
+            })
+            ->implode('; ');
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'name' => $name,
+                'last_interaction' => $history ?: 'নাই (নতুন গ্রাহক)',
+            ]
+        ]);
     }
 }
