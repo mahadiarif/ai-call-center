@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\File;
 class AsteriskConfig extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-adjustments-horizontal';
-    protected static ?string $navigationGroup = '🛡️ System Management';
+    protected static string | \UnitEnum | null $navigationGroup = '🛡️ System Management';
     protected static ?string $navigationLabel = 'Asterisk Config';
     protected static string $view = 'filament.pages.asterisk-config';
     protected static ?int $navigationSort = 100;
