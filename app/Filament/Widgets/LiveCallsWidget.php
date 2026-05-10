@@ -47,10 +47,13 @@ class LiveCallsWidget extends Widget
         // activeCalls = শুধু Incoming ServiceRequest — dropped/ended call গণনায় নেই
         $activeCalls = $incomingSr;
 
-        // AI Performance (Suggestion #5)
-        $avgLatency = \DB::table('ai_performance_logs')
-            ->where('created_at', '>=', now()->subHours(24))
-            ->avg('latency_ms') ?? 0;
+        // AI Performance (Suggestion #5) - Safe Check
+        $avgLatency = 0;
+        if (Schema::hasTable('ai_performance_logs') && Schema::hasColumn('ai_performance_logs', 'latency_ms')) {
+            $avgLatency = \DB::table('ai_performance_logs')
+                ->where('created_at', '>=', now()->subHours(24))
+                ->avg('latency_ms') ?? 0;
+        }
 
         $recentCalls = ServiceRequest::with('ivrService')
             ->latest()
