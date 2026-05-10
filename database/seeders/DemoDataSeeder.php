@@ -14,17 +14,23 @@ class DemoDataSeeder extends Seeder
     {
         // ১. AI Performance Logs (Latencies)
         $logs = [];
-        for ($i = 0; $i < 50; $i++) {
-            $logs[] = [
-                'session_id' => \Illuminate\Support\Str::uuid(),
-                'latency_ms' => rand(800, 2500),
-                'provider'   => 'Gemini Live 2.5',
-                'status'     => 'ready',
-                'created_at' => Carbon::now()->subMinutes(rand(0, 1440)),
-                'updated_at' => Carbon::now(),
-            ];
+        if (Schema::hasTable('ai_performance_logs')) {
+            $columns = Schema::getColumnListing('ai_performance_logs');
+            for ($i = 0; $i < 50; $i++) {
+                $log = [
+                    'created_at' => Carbon::now()->subMinutes(rand(0, 1440)),
+                    'updated_at' => Carbon::now(),
+                ];
+                
+                if (in_array('session_id', $columns)) $log['session_id'] = \Illuminate\Support\Str::uuid();
+                if (in_array('latency_ms', $columns)) $log['latency_ms'] = rand(800, 2500);
+                if (in_array('provider', $columns))   $log['provider']   = 'Gemini Live 2.5';
+                if (in_array('status', $columns))     $log['status']     = 'ready';
+                
+                $logs[] = $log;
+            }
+            DB::table('ai_performance_logs')->insert($logs);
         }
-        DB::table('ai_performance_logs')->insert($logs);
 
         // ২. Service Requests & Call Logs
         $statuses = ['Pending', 'Resolved', 'Drop Call', 'Incoming'];
