@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 
 class WeeklyCallsChart extends ChartWidget
 {
-    protected static ?string $heading = 'Weekly Call Volume';
+    protected ?string $heading = 'Weekly Call Volume';
     protected static ?int $sort = 2;
 
     protected function getData(): array

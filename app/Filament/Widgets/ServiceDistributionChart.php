@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 class ServiceDistributionChart extends ChartWidget
 {
-    protected static ?string $heading = 'Service Distribution';
+    protected ?string $heading = 'Service Distribution';
     protected static ?int $sort = 3;
 
     protected function getData(): array
