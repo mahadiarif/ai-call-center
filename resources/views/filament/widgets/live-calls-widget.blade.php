@@ -1,124 +1,95 @@
-<x-filament-widgets::widget>
-    <x-filament::section>
-        <div wire:poll.2000ms>
-            {{-- Header --}}
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem;">
-                <div style="display:flex; align-items:center; gap:0.75rem;">
-                    <div style="position:relative; display:flex; height:0.75rem; width:0.75rem;">
-                        @if($activeCalls > 0)
-                            <span style="position:absolute; height:100%; width:100%; border-radius:9999px; background-color:rgb(34, 197, 94); opacity:0.75; animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
-                            <span style="position:relative; height:0.75rem; width:0.75rem; border-radius:9999px; background-color:rgb(34, 197, 94);"></span>
-                        @else
-                            <span style="position:relative; height:0.75rem; width:0.75rem; border-radius:9999px; background-color:rgb(156, 163, 175);"></span>
-                        @endif
-                    </div>
-                    <h3 style="font-size:1.125rem; font-weight:700;">📞 Live Call Monitor</h3>
-                </div>
-                <span style="font-size:0.75rem; color:rgb(156, 163, 175); font-family:monospace;">BD Time: {{ $currentTime }}</span>
-            </div>
+<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    {{-- Top Stats Grid --}}
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <div style="background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase;">Live Calls</p>
+            <p style="font-size: 1.875rem; font-weight: 800; color: #ef4444;">{{ $activeCalls }}</p>
+        </div>
+        <div style="background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase;">Total Today</p>
+            <p style="font-size: 1.875rem; font-weight: 800; color: #1f2937;">{{ $todayTotal }}</p>
+        </div>
+        <div style="background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase;">AI Latency (Avg)</p>
+            <p style="font-size: 1.875rem; font-weight: 800; color: #10b981;">{{ number_format($avgLatency / 1000, 2) }}s</p>
+        </div>
+        <div style="background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase;">Server Time</p>
+            <p style="font-size: 1.875rem; font-weight: 800; color: #3b82f6;">{{ $currentTime }}</p>
+        </div>
+    </div>
 
-            {{-- Stats Cards --}}
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1.5rem;">
-                {{-- Active Now --}}
-                <div style="padding:1rem; border-radius:0.75rem; border:2px solid {{ $activeCalls > 0 ? 'rgb(34, 197, 94)' : 'rgba(156, 163, 175, 0.2)' }}; background-color: {{ $activeCalls > 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(156, 163, 175, 0.05)' }};">
-                    <div style="font-size:1.875rem; font-weight:900; color: {{ $activeCalls > 0 ? 'rgb(34, 197, 94)' : 'rgb(156, 163, 175)' }};">
-                        {{ $activeCalls }}
-                    </div>
-                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem;">
-                        🔴 Active Now
-                    </div>
-                </div>
+    {{-- Live Call List --}}
+    <div style="background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
+        <div style="padding: 1rem; border-bottom: 1px solid #f3f4f6; background-color: #f9fafb;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #111827;">Live Call Operations</h3>
+        </div>
 
-                {{-- Last 1 Hour --}}
-                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(59, 130, 246); background-color: rgba(59, 130, 246, 0.1);">
-                    <div style="font-size:1.875rem; font-weight:900; color: rgb(59, 130, 246);">{{ $lastHour }}</div>
-                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(59, 130, 246);">⏱ Last 1 Hour</div>
-                </div>
-
-                {{-- Today Total --}}
-                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(139, 92, 246); background-color: rgba(139, 92, 246, 0.1);">
-                    <div style="font-size:1.875rem; font-weight:900; color: rgb(139, 92, 246);">{{ $todayTotal }}</div>
-                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(139, 92, 246);">📅 Today Total</div>
-                </div>
-
-                {{-- AI Latency --}}
-                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(245, 158, 11); background-color: rgba(245, 158, 11, 0.1);">
-                    <div style="font-size:1.875rem; font-weight:900; color: rgb(245, 158, 11);">{{ number_format($avgLatency / 1000, 2) }}s</div>
-                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(245, 158, 11);">⚡ AI Latency (Avg)</div>
-                </div>
-            </div>
-
-            {{-- Recent Calls Table --}}
-            @if($recentCalls && $recentCalls->count() > 0)
-                <p style="font-size:0.875rem; font-weight:600; margin-bottom:0.75rem;">🕑 Recent Activity</p>
-                <div style="overflow:hidden; border-radius:0.5rem; border:1px solid rgba(156, 163, 175, 0.2);">
-                    <table style="width:100%; text-align:left; font-size:0.875rem; border-collapse: collapse;">
-                        <thead style="background-color: rgba(156, 163, 175, 0.05);">
-                            <tr>
-                                <th style="padding:0.75rem 1rem; font-weight:600;">Customer</th>
-                                <th style="padding:0.75rem 1rem; font-weight:600;">IVR Service</th>
-                                <th style="padding:0.75rem 1rem; font-weight:600; text-align:center;">Status</th>
-                                <th style="padding:0.75rem 1rem; font-weight:600; text-align:right;">Duration</th>
-                            </tr>
-                        </thead>
-                        <tbody style="background-color: transparent;">
-                            @foreach($recentCalls as $call)
-                                @php
-                                    $isLive = $call->status === 'Incoming' && $call->created_at->diffInMinutes(now()) < 15;
-                                    $durationSec = $isLive ? $call->created_at->diffInSeconds(now()) : $call->created_at->diffInSeconds($call->updated_at);
-                                    $durationStr = $durationSec >= 60 ? floor($durationSec/60) . 'm ' . ($durationSec%60) . 's' : $durationSec . 's';
-                                    $rowBg = $isLive ? 'rgba(34, 197, 94, 0.05)' : 'transparent';
-                                @endphp
-                                <tr style="background-color: {{ $rowBg }}; border-top: 1px solid rgba(156, 163, 175, 0.1);">
-                                    <td style="padding:0.75rem 1rem;">
-                                        <div style="display:flex; flex-direction:column;">
-                                            <span style="font-weight:600;">{{ $call->customer_name ?: 'Unknown' }}</span>
-                                            <span style="font-size:0.75rem; color:rgb(156, 163, 175);">{{ $call->mobile_number }}</span>
-                                        </div>
-                                    </td>
-                                    <td style="padding:0.75rem 1rem; color:rgb(107, 114, 128);">
-                                        {{ $call->ivrService?->service_name ?: 'General' }}
-                                    </td>
-                                    <td style="padding:0.75rem 1rem; text-align:center;">
-                                        @php
-                                            $badgeColor = match($call->status) {
-                                                'Incoming' => 'rgb(34, 197, 94)',
-                                                'Resolved' => 'rgb(59, 130, 246)',
-                                                'Drop Call' => 'rgb(239, 68, 68)',
-                                                default => 'rgb(156, 163, 175)'
-                                            };
-                                        @endphp
-                                        <span style="padding:0.125rem 0.5rem; border-radius:9999px; font-size:0.75rem; font-weight:600; background-color:{{ $badgeColor }}; color:white;">
-                                            {{ $call->status }}
-                                        </span>
-                                    </td>
-                                    <td style="padding:0.75rem 1rem; text-align:right;">
-                                        <div style="display:flex; flex-direction:column; align-items:flex-end;">
-                                            <span style="font-weight:700; color: {{ $isLive ? 'rgb(34, 197, 94)' : 'inherit' }}">
-                                                {{ $durationStr }}
-                                            </span>
-                                            <span style="font-size:0.625rem; color:rgb(156, 163, 175);">{{ $call->created_at->diffForHumans() }}</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
+        <div style="padding: 1rem;">
+            @if($recentCalls->isEmpty())
+                <p style="text-align: center; color: #9ca3af; padding: 2rem;">No calls recorded today.</p>
             @else
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:3rem 0; color:rgb(156, 163, 175);">
-                    <p style="font-size:0.875rem;">No live calls at the moment</p>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    @foreach($recentCalls as $call)
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; border: 1px solid {{ $call->status === 'Incoming' ? '#fee2e2' : '#f3f4f6' }}; border-radius: 0.5rem; background-color: {{ $call->status === 'Incoming' ? '#fff5f5' : 'white' }};">
+                            {{-- Caller Info --}}
+                            <div style="display: flex; align-items: center; gap: 1rem; flex: 1;">
+                                <div style="width: 10px; height: 10px; border-radius: 50%; background-color: {{ $call->status === 'Incoming' ? '#ef4444' : '#10b981' }}; {{ $call->status === 'Incoming' ? 'animation: pulse 2s infinite;' : '' }}"></div>
+                                <div>
+                                    <p style="font-size: 0.875rem; font-weight: 700; color: #111827;">{{ $call->mobile_number }}</p>
+                                    <p style="font-size: 0.75rem; color: #6b7280;">{{ $call->ivrService?->service_name ?? 'General' }} • {{ $call->created_at->diffForHumans() }}</p>
+                                </div>
+                            </div>
+
+                            {{-- Status Badge --}}
+                            <div style="flex: 1; text-align: center;">
+                                <span style="display: inline-block; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-radius: 9999px; background-color: {{ $call->status === 'Incoming' ? '#fee2e2' : '#d1fae5' }}; color: {{ $call->status === 'Incoming' ? '#dc2626' : '#059669' }};">
+                                    {{ $call->status }}
+                                </span>
+                            </div>
+
+                            {{-- Operations Actions --}}
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                @if($call->status === 'Incoming')
+                                    <x-filament::button 
+                                        size="xs" 
+                                        color="warning"
+                                        tooltip="Transfer to Human Agent"
+                                        wire:click="transferCall('{{ $call->id }}')"
+                                    >
+                                        Agent
+                                    </x-filament::button>
+                                    <x-filament::button 
+                                        size="xs" 
+                                        color="danger"
+                                        tooltip="Force Hangup"
+                                        wire:click="hangupCall('{{ $call->id }}')"
+                                    >
+                                        End
+                                    </x-filament::button>
+                                @else
+                                    <x-filament::button 
+                                        size="xs" 
+                                        color="gray"
+                                        tag="a"
+                                        href="{{ route('filament.admin.resources.service-requests.edit', $call->id) }}"
+                                    >
+                                        View
+                                    </x-filament::button>
+                                @endif
+                            </div>
+                        </div>
+                    @endforeach
                 </div>
             @endif
         </div>
-    </x-filament::section>
-    
+    </div>
+
     <style>
-        @keyframes ping {
-            75%, 100% {
-                transform: scale(2);
-                opacity: 0;
-            }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
     </style>
-</x-filament-widgets::widget>
+</div>

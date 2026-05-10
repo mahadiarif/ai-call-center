@@ -62,4 +62,51 @@ class LiveCallsWidget extends Widget
 
         return compact('activeCalls', 'todayTotal', 'lastHour', 'currentTime', 'recentCalls', 'avgLatency');
     }
+
+    public function transferCall($id)
+    {
+        $sr = ServiceRequest::find($id);
+        if (!$sr || $sr->status !== 'Incoming') return;
+
+        try {
+            // Call the bridge API to transfer
+            $resp = \Http::post(url('/api/bridge/transfer-to-agent'), [
+                'service_request_id' => $id,
+                'caller_number' => $sr->mobile_number,
+                'reason' => 'manual_intervention',
+            ]);
+
+            \Filament\Notifications\Notification::make()
+                ->title('Transferring to Agent...')
+                ->success()
+                ->send();
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('Transfer Failed')
+                ->danger()
+                ->send();
+        }
+    }
+
+    public function hangupCall($id)
+    {
+        $sr = ServiceRequest::find($id);
+        if (!$sr) return;
+
+        try {
+            // Logic to hangup via Asterisk AMI or Bridge API
+            // For now, we update status and let the bridge handle the disconnect
+            $sr->update(['status' => 'Drop Call']);
+
+            \Filament\Notifications\Notification::make()
+                ->title('Call Terminated')
+                ->warning()
+                ->send();
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('Action Failed')
+                ->danger()
+                ->send();
+        }
+    }
 }
