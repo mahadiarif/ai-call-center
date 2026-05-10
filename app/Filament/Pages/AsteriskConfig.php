@@ -33,8 +33,22 @@ class AsteriskConfig extends Page
 
     public function loadConfigs()
     {
-        $this->sipConfig = File::exists($this->sipPath) ? File::get($this->sipPath) : "; sip.conf not found at {$this->sipPath}";
-        $this->extensionsConfig = File::exists($this->extensionsPath) ? File::get($this->extensionsPath) : "; extensions.conf not found at {$this->extensionsPath}";
+        try {
+            if (File::exists($this->sipPath) && File::isReadable($this->sipPath)) {
+                $this->sipConfig = File::get($this->sipPath);
+            } else {
+                $this->sipConfig = "; [ERROR] sip.conf is not readable. \n; Run: sudo chown www-data:www-data {$this->sipPath} && sudo chmod 664 {$this->sipPath}";
+            }
+
+            if (File::exists($this->extensionsPath) && File::isReadable($this->extensionsPath)) {
+                $this->extensionsConfig = File::get($this->extensionsPath);
+            } else {
+                $this->extensionsConfig = "; [ERROR] extensions.conf is not readable. \n; Run: sudo chown www-data:www-data {$this->extensionsPath} && sudo chmod 664 {$this->extensionsPath}";
+            }
+        } catch (\Exception $e) {
+            $this->sipConfig = "; Error loading config: " . $e->getMessage();
+            $this->extensionsConfig = "; Error loading config: " . $e->getMessage();
+        }
     }
 
     public function saveConfigs()
