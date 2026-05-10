@@ -6,6 +6,7 @@ use Illuminate\Database\Seeder;
 use App\Models\ServiceRequest;
 use App\Models\CallLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class DemoDataSeeder extends Seeder
