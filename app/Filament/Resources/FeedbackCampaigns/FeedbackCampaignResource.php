@@ -24,8 +24,8 @@ class FeedbackCampaignResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPhoneArrowUpRight;
     protected static ?string $navigationLabel = 'Feedback Campaigns';
     protected static ?string $modelLabel = 'Feedback Campaign';
-    protected static string|\UnitEnum|null $navigationGroup = 'আউটবাউন্ড সার্ভে';
-    protected static ?int $navigationSort = 1;
+    protected static string | \UnitEnum | null $navigationGroup = '🛡️ System Management';
+    protected static ?int $navigationSort = 3;
 
     public static function form(Schema $schema): Schema
     {

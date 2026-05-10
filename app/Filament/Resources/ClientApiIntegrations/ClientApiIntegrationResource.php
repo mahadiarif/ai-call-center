@@ -17,7 +17,7 @@ class ClientApiIntegrationResource extends Resource
 {
     protected static ?string $model = ClientApiIntegration::class;
     protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-link';
-    protected static string|\UnitEnum|null $navigationGroup = 'AI সেটিংস';
+    protected static string | \UnitEnum | null $navigationGroup = '🛡️ System Management';
     protected static ?string $navigationLabel = 'Client API Settings';
     protected static ?int $navigationSort = 10;
 

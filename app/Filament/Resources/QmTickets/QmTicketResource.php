@@ -29,8 +29,8 @@ class QmTicketResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
     protected static ?string $navigationLabel = 'QM Tickets';
     protected static ?string $modelLabel = 'QM Ticket';
-    protected static string|\UnitEnum|null $navigationGroup = 'টিকেটস';
-    protected static ?int $navigationSort = 2;
+    protected static string | \UnitEnum | null $navigationGroup = '📞 Call Operations';
+    protected static ?int $navigationSort = 3;
 
     public static function form(Schema $schema): Schema
     {

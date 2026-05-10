@@ -25,8 +25,8 @@ class SrTicketResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedWrenchScrewdriver;
     protected static ?string $navigationLabel = 'SR Tickets';
     protected static ?string $modelLabel = 'SR Ticket';
-    protected static string|\UnitEnum|null $navigationGroup = 'টিকেটস';
-    protected static ?int $navigationSort = 1;
+    protected static string | \UnitEnum | null $navigationGroup = '📞 Call Operations';
+    protected static ?int $navigationSort = 4;
 
     public static function form(Schema $schema): Schema
     {
