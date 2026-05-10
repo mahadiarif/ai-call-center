@@ -31,7 +31,11 @@ Route::middleware('auth:sanctum')->group(function () {
 // ══════════════════════════════════════════════════════════
 Route::post('/bridge/call-log/start',     [CallLogController::class, 'startCall']);
 Route::post('/bridge/call-log/end',       [CallLogController::class, 'endCall']);
+Route::post('/bridge/call-hangup',        [CallLogController::class, 'immediateHangup']);
 Route::post('/bridge/process-final-text', [AIFormController::class,  'processFinalText']);
+Route::post('/bridge/pre-register-ticket', [AIFormController::class, 'preRegisterTicket']);
+Route::post('/bridge/check-walton-sr',     [AIFormController::class, 'checkWaltonSr']);
+Route::post('/bridge/transfer-to-agent',   [\App\Http\Controllers\EscalationController::class, 'transferToAgent']);
 Route::get('/bridge/get-ivr-setup',       [AIFormController::class,  'getLiveSetup']);
 // Asterisk dialplan → call করে caller number register করে (AudioSocket আগে)
 Route::post('/bridge/register-caller',    [CallLogController::class, 'registerCaller']);
@@ -39,3 +43,9 @@ Route::post('/bridge/register-caller',    [CallLogController::class, 'registerCa
 Route::get('/bridge/caller-by-uuid',      [CallLogController::class, 'getCallerByUuid']);
 // Legacy IP-based lookup (fallback)
 Route::get('/bridge/caller-by-ip',        [CallLogController::class, 'getCallerByIp']);
+
+// ══════════════════════════════════════════════════════════
+//  Client API Webhook — client system pushes real-time updates
+//  POST /api/client-webhook/{integration_id}
+// ══════════════════════════════════════════════════════════
+Route::post('/client-webhook/{integrationId}', [\App\Http\Controllers\ClientWebhookController::class, 'receive']);

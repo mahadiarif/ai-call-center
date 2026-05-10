@@ -1,0 +1,15 @@
+{
+  "name": "ai-call-center-bridge",
+  "version": "1.0.0",
+  "description": "Real-time streaming bridge for Asterisk AI Call Center",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0",
+    "axios": "^1.7.2"
+  }
+}

@@ -33,6 +33,17 @@ class CallLogResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('latestSrTicket.client_ticket_id')
+                    ->label('🎫 Walton SR নং')
+                    ->default('—')
+                    ->badge()
+                    ->color(fn ($state) => $state && $state !== '—' ? 'success' : 'gray')
+                    ->copyable()
+                    ->tooltip(fn ($record) => $record->latestSrTicket
+                        ? "SR ID: {$record->latestSrTicket->id} | {$record->latestSrTicket->customer_name}"
+                        : null
+                    ),
+
                 TextColumn::make('caller_number')
                     ->label('📱 কলার নম্বর')
                     ->formatStateUsing(fn ($state) => $state ?: '—')

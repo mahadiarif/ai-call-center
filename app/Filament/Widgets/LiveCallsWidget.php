@@ -10,39 +10,48 @@ class LiveCallsWidget extends Widget
 {
     protected string $view = 'filament.widgets.live-calls-widget';
 
-    // প্রতি ৫ সেকেন্ডে auto refresh
-    protected ?string $pollingInterval = '5s';
+    // প্রতি ২ সেকেন্ডে auto refresh — real-time live call monitor
+    protected ?string $pollingInterval = '2s';
 
     protected static ?int $sort = -2;
 
     protected int | string | array $columnSpan = 'full';
 
-    public int $activeCalls = 0;
-    public int $todayTotal  = 0;
-    public int $lastHour    = 0;
-    public string $currentTime = '';
-    public $recentCalls;
-
-    public function mount(): void
+    // getViewData() প্রতিটি render/poll-এ fresh data দেয়
+    protected function getViewData(): array
     {
-        $this->loadData();
-    }
+        $activeCalls = 0;
+        $todayTotal  = 0;
+        $lastHour    = 0;
+        $currentTime = now()->format('H:i:s');
+        $recentCalls = collect();
 
-    public function loadData(): void
-    {
-        $this->currentTime = now()->format('H:i:s');
-        $this->recentCalls = collect();
+        if (!Schema::hasTable('service_requests')) {
+            return compact('activeCalls', 'todayTotal', 'lastHour', 'currentTime', 'recentCalls');
+        }
 
-        if (!Schema::hasTable('service_requests')) return;
+        // 20 মিনিটের বেশি পুরনো Incoming SR auto-clear করো (কল কেটে গেলে)
+        // NOTE: real call 15+ মিনিট হতে পারে — তাই 20 মিনিট threshold
+        ServiceRequest::where('status', 'Incoming')
+            ->where('created_at', '<', now()->subMinutes(20))
+            ->update(['status' => 'Drop Call']);
 
-        $this->todayTotal  = ServiceRequest::whereDate('created_at', today())->count();
-        $this->lastHour    = ServiceRequest::where('created_at', '>=', now()->subHour())->count();
-        $this->activeCalls = ServiceRequest::where('status', 'Pending')
-            ->where('created_at', '>=', now()->subMinutes(5))
+        $todayTotal = ServiceRequest::whereDate('created_at', today())->count();
+        $lastHour   = ServiceRequest::where('created_at', '>=', now()->subHour())->count();
+
+        // Live count — Incoming + created within last 20 minutes only
+        $incomingSr = ServiceRequest::where('status', 'Incoming')
+            ->where('created_at', '>=', now()->subMinutes(20))
             ->count();
-        $this->recentCalls = ServiceRequest::with('ivrService')
+
+        // activeCalls = শুধু Incoming ServiceRequest — dropped/ended call গণনায় নেই
+        $activeCalls = $incomingSr;
+
+        $recentCalls = ServiceRequest::with('ivrService')
             ->latest()
             ->take(10)
             ->get();
+
+        return compact('activeCalls', 'todayTotal', 'lastHour', 'currentTime', 'recentCalls');
     }
 }

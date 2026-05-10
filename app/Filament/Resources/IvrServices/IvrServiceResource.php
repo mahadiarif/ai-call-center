@@ -33,7 +33,49 @@ class IvrServiceResource extends Resource
         return $schema
             ->components([
                 // 🚀 ম্যাজিক: প্রত্যেকটা ফিল্ডে ->columnSpan('full') দিয়ে জোর করে ১০০% লম্বা করে দিলাম!
-                
+
+                // ── Service Type — preset fields auto-fill ──────────────────────────
+                Select::make('service_type')
+                    ->label('📋 Service Type (টাইপ বেছে নিন — Fields auto-fill হবে)')
+                    ->options([
+                        'sr'            => '🔧 SR — Service Request (হোম সার্ভিস / রিপেয়ার)',
+                        'qm_complaint'  => '⚠️ QM — অভিযোগ (Complaint)',
+                        'qm_parts'      => '🔩 QM — Parts Query (যন্ত্রাংশ)',
+                        'qm_bill'       => '💳 QM — Bill Query (বিল সংক্রান্ত)',
+                        'survey'        => '📊 Outbound Survey (Feedback Call)',
+                        'general'       => '💬 General (সাধারণ কল)',
+                    ])
+                    ->helperText('Type select করলে নিচে সেই type এর প্রয়োজনীয় fields দেখাবে — Repeater এ manually add করুন')
+                    ->live()
+                    ->afterStateUpdated(function ($state, \Filament\Schemas\Components\Utilities\Set $set) {
+                        // Type অনুযায়ী system_prompt + required_fields preset করো
+                        $presets = \App\Filament\Resources\IvrServices\IvrServiceResource::getPresetFields($state);
+                        if (!empty($presets['fields'])) {
+                            $set('required_fields', $presets['fields']);
+                        }
+                        if (!empty($presets['prompt'])) {
+                            $set('system_prompt', $presets['prompt']);
+                        }
+                        if (!empty($presets['greeting'])) {
+                            $set('greeting_message', $presets['greeting']);
+                        }
+                    })
+                    ->columnSpan('full'),
+
+                // Type অনুযায়ী hint দেখাবে
+                \Filament\Forms\Components\Placeholder::make('type_hint')
+                    ->label('')
+                    ->content(fn (\Filament\Schemas\Components\Utilities\Get $get): string => match($get('service_type')) {
+                        'sr'           => '✅ SR: customer_name, mobile_number, product_name, problem_description, district, address, barcode',
+                        'qm_complaint' => '✅ QM Complaint: customer_name, mobile_number, complaint_category, person_name, showroom_address, incident_date, complaint_details',
+                        'qm_parts'     => '✅ QM Parts: customer_name, mobile_number, product_name, model_number, parts_name, district',
+                        'qm_bill'      => '✅ QM Bill: customer_name, mobile_number, sr_reference, bill_query_details, district',
+                        'survey'       => '✅ Survey: কোনো field লাগবে না — AI automatically script follow করবে',
+                        default        => '👆 উপরে type select করুন — তারপর নিচে সেই type এর fields auto-fill হবে',
+                    })
+                    ->columnSpan('full'),
+                // ─────────────────────────────────────────────────────────────────
+
                 TextInput::make('key_press')
                     ->required()
                     ->unique(ignoreRecord: true)
@@ -69,146 +111,58 @@ class IvrServiceResource extends Resource
                 Repeater::make('required_fields')
                     ->label('কাস্টমার থেকে যে তথ্যগুলো নিতে হবে')
                     ->columnSpan('full')
+                    ->columns(2)
                     ->schema([
 
-                        // ✅ Field name — suggestion সহ
+                        // Row 1: field_name + ai_instruction side by side
                         TextInput::make('field_name')
                             ->required()
-                            ->label('ফিল্ডের নাম (AI এই নামে JSON এ save করবে)')
-                            ->helperText('পরিচিত নাম দিলে AI ভালো বুঝবে। নিচে suggestion আছে।')
+                            ->label('Field নাম (JSON key)')
+                            ->helperText('AI এই নামে save করবে')
                             ->datalist([
                                 'customer_name', 'mobile_number', 'alt_mobile_number',
-                                'address', 'district', 'thana', 'post_code',
-                                'product_name', 'product_model', 'barcode', 'serial_number',
+                                'address', 'district', 'thana',
+                                'product_name', 'model_number', 'barcode', 'serial_number',
                                 'problem_description', 'purchase_date', 'warranty_status',
-                                'service_type', 'complaint_type', 'email',
-                                'nid_number', 'account_number', 'reference_number',
-                            ])
-                            ->columnSpan('full'),
+                                'complaint_category', 'complaint_details',
+                                'person_name', 'showroom_address', 'incident_date',
+                                'parts_name', 'sr_reference', 'bill_query_details', 'bill_amount',
+                            ]),
 
                         TextInput::make('ai_instruction')
                             ->label('AI কীভাবে জিজ্ঞেস করবে')
-                            ->placeholder('যেমন: কাস্টমারের পুরা নাম জানতে চাও')
-                            ->columnSpan('full'),
+                            ->placeholder('যেমন: কাস্টমারের পুরো নাম জানতে চাও'),
 
+                        // Row 2: toggles + format hint
                         Toggle::make('is_mandatory')
                             ->default(true)
-                            ->label('জরুরি তথ্য? (চেষ্টা করবে নেওয়ার)')
-                            ->columnSpan('full'),
+                            ->label('জরুরি তথ্য'),
 
                         Toggle::make('is_blocking')
                             ->default(false)
-                            ->label('কঠোর বাধ্যতামূলক? (না দিলে এগোবে না)')
-                            ->columnSpan('full'),
+                            ->label('বাধ্যতামূলক (না দিলে এগোবে না)'),
 
-                        // ✅ Sample values + length validation (সবচেয়ে গুরুত্বপূর্ণ)
-                        Section::make('📏 ডাটা ফরম্যাট ও Sample (AI validation এর জন্য)')
-                            ->collapsed()
-                            ->schema([
-                                Textarea::make('sample_values')
-                                    ->label('Sample মান (একটি লাইনে একটি করে)')
-                                    ->placeholder("01712345678\n01987654321\n017-XXXXXXXX")
-                                    ->helperText('এই sample দেখে AI বুঝবে সঠিক ডাটা কেমন হওয়া উচিত')
-                                    ->rows(3)
-                                    ->columnSpan('full'),
+                        // Optional: min/max length — compact, 1 row
+                        TextInput::make('min_length')
+                            ->label('Min দৈর্ঘ্য')
+                            ->numeric()
+                            ->placeholder('যেমন: 11')
+                            ->helperText('মোবাইল=11, barcode=8'),
 
-                                TextInput::make('min_length')
-                                    ->label('সর্বনিম্ন character/digit সংখ্যা')
-                                    ->numeric()
-                                    ->placeholder('যেমন: 11 (মোবাইল), 4 (barcode)')
-                                    ->columnSpan('full'),
+                        TextInput::make('max_length')
+                            ->label('Max দৈর্ঘ্য')
+                            ->numeric()
+                            ->placeholder('যেমন: 11'),
 
-                                TextInput::make('max_length')
-                                    ->label('সর্বোচ্চ character/digit সংখ্যা')
-                                    ->numeric()
-                                    ->placeholder('যেমন: 11 (মোবাইল), 20 (barcode)')
-                                    ->columnSpan('full'),
-
-                                TextInput::make('expected_format')
-                                    ->label('ফরম্যাট বর্ণনা (AI কে বোঝানোর জন্য)')
-                                    ->placeholder('যেমন: 11 সংখ্যা, 01 দিয়ে শুরু | অথবা: 6-16 digit')
-                                    ->columnSpan('full'),
-
-                                TextInput::make('error_message')
-                                    ->label('ভুল ডাটা দিলে AI কী বলবে?')
-                                    ->placeholder('যেমন: মোবাইল নম্বরটি ১১ ডিজিটের হতে হবে')
-                                    ->columnSpan('full'),
-                            ]),
-
-                        // ✅ Advanced options — collapse করা
-                        Section::make('⚙️ Advanced Options (ঐচ্ছিক)')
-                            ->collapsed()
-                            ->schema([
-                                TextInput::make('convincing_logic')
-                                    ->label('তথ্য না দিলে কীভাবে বোঝাবে?')
-                                    ->columnSpan('full'),
-
-                                TextInput::make('max_retries')
-                                    ->label('সর্বোচ্চ কতবার চেষ্টা করবে?')
-                                    ->numeric()
-                                    ->default(2)
-                                    ->minValue(1)
-                                    ->maxValue(5)
-                                    ->columnSpan('full'),
-
-                                Toggle::make('needs_confirmation')
-                                    ->label('বললে AI রিপিট করে confirm করবে?')
-                                    ->default(true)
-                                    ->helperText('"০১৭১২... — এটা কি ঠিক আছে?"')
-                                    ->columnSpan('full'),
-
-                                TextInput::make('depends_on_field')
-                                    ->label('কোন field পাওয়ার পরে জিজ্ঞেস করবে? (Conditional)')
-                                    ->datalist([
-                                        'customer_name', 'mobile_number', 'product_name',
-                                        'barcode', 'address', 'district',
-                                    ])
-                                    ->columnSpan('full'),
-
-                                TextInput::make('indirect_question')
-                                    ->label('ঘুরিয়ে জিজ্ঞেস করার উপায় (Indirect)')
-                                    ->placeholder('যেমন: "আপনি কি ঢাকায় থাকেন?"')
-                                    ->columnSpan('full'),
-
-                                Repeater::make('validation_formats')
-                                    ->label('ভ্যালিডেশন রুল')
-                                    ->columnSpan('full')
-                                    ->schema([
-                                        TextInput::make('rule')
-                                            ->required()
-                                            ->label('রুল')
-                                            ->placeholder('যেমন: 11 digits, Starts with 01')
-                                            ->columnSpan('full'),
-                                    ])
-                                    ->addActionLabel('➕ রুল যোগ করুন')
-                                    ->defaultItems(0)
-                                    ->collapsible(),
-                            ]),
-
-                        // ✅ FAQ
-                        Section::make('❓ FAQ — কাস্টমারের পাল্টা প্রশ্ন ও AI এর উত্তর')
-                            ->collapsed()
-                            ->schema([
-                                Repeater::make('custom_qna')
-                                    ->label('')
-                                    ->columnSpan('full')
-                                    ->schema([
-                                        TextInput::make('customer_question')
-                                            ->required()
-                                            ->label('কাস্টমার যদি জিজ্ঞেস করে...')
-                                            ->columnSpan('full'),
-                                        Textarea::make('ai_answer')
-                                            ->required()
-                                            ->label('AI তখন এই উত্তর দেবে...')
-                                            ->columnSpan('full'),
-                                    ])
-                                    ->addActionLabel('➕ প্রশ্নোত্তর যোগ করুন')
-                                    ->defaultItems(0),
-                            ]),
+                        TextInput::make('expected_format')
+                            ->label('ফরম্যাট (AI validation)')
+                            ->placeholder('যেমন: 11 সংখ্যা, 01 দিয়ে শুরু')
+                            ->columnSpan(2),
 
                     ])
                     ->itemLabel(fn (array $state): ?string => $state['field_name'] ?? 'নতুন ফিল্ড')
                     ->collapsible()
+                    ->collapsed()
                     ->defaultItems(1)
                     ->addActionLabel('➕ নতুন ফিল্ড যোগ করুন')
                     ->reorderable(true),
@@ -366,6 +320,90 @@ class IvrServiceResource extends Resource
     public static function getRelations(): array
     {
         return [];
+    }
+
+    // ─── Preset fields + prompt per service type ─────────────────────────────
+    public static function getPresetFields(string $type): array
+    {
+        $presets = [
+
+            'sr' => [
+                'greeting' => '{time_greeting}! ওয়ালটন হেল্পলাইনে স্বাগতম। আমি আপনার সার্ভিস রিকোয়েস্ট নিতে সাহায্য করব।',
+                'prompt'   => 'তুমি ওয়ালটন হেল্পলাইনের একজন বাস্তব কল সেন্টার এজেন্ট। কাস্টমারের হোম সার্ভিস রিকোয়েস্ট নিতে হবে। SR ticket তৈরি করো।',
+                'fields'   => [
+                    ['field_name'=>'customer_name',       'ai_instruction'=>'কাস্টমারের পুরো নাম জানতে চাও',                      'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'mobile_number',       'ai_instruction'=>'কাস্টমারের মোবাইল নম্বর জানতে চাও (১১ ডিজিট)',       'is_mandatory'=>true,  'is_blocking'=>true,  'min_length'=>11,'max_length'=>11,'expected_format'=>'11 সংখ্যা, 01 দিয়ে শুরু'],
+                    ['field_name'=>'alt_mobile_number',   'ai_instruction'=>'বিকল্প মোবাইল নম্বর আছে কিনা জানতে চাও',            'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'product_name',        'ai_instruction'=>'পণ্যের নাম জানতে চাও (AC/TV/REF/Mobile ইত্যাদি)',    'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'model_number',        'ai_instruction'=>'পণ্যের মডেল নম্বর জানতে চাও',                       'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'barcode',             'ai_instruction'=>'পণ্যের বারকোড/সিরিয়াল নম্বর জানতে চাও',            'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'problem_description', 'ai_instruction'=>'পণ্যের সমস্যা বিস্তারিত জানতে চাও',                 'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'address',             'ai_instruction'=>'বাড়ির পূর্ণ ঠিকানা জানতে চাও',                     'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'district',            'ai_instruction'=>'জেলার নাম জানতে চাও',                               'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'purchase_date',       'ai_instruction'=>'পণ্য কবে কিনেছেন জানতে চাও (মাস/বছর হলেই চলবে)',   'is_mandatory'=>false, 'is_blocking'=>false],
+                ],
+            ],
+
+            'qm_complaint' => [
+                'greeting' => '{time_greeting}! ওয়ালটন হেল্পলাইনে স্বাগতম। আপনার অভিযোগ নথিভুক্ত করতে সাহায্য করব।',
+                'prompt'   => 'তুমি ওয়ালটন হেল্পলাইনের একজন বাস্তব কল সেন্টার এজেন্ট। কাস্টমারের অভিযোগ (QM Complaint) নিতে হবে। বিস্তারিত শুনে নোট করো।',
+                'fields'   => [
+                    ['field_name'=>'customer_name',       'ai_instruction'=>'অভিযোগকারীর নাম জানতে চাও',                        'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'mobile_number',       'ai_instruction'=>'যোগাযোগের মোবাইল নম্বর জানতে চাও',               'is_mandatory'=>true,  'is_blocking'=>true,  'min_length'=>11,'max_length'=>11],
+                    ['field_name'=>'complaint_category',  'ai_instruction'=>'অভিযোগের ধরন জানতে চাও (সার্ভিস এক্সপার্ট/শো-রুম/পণ্যের মান/বিল/অন্যান্য)', 'is_mandatory'=>true, 'is_blocking'=>true],
+                    ['field_name'=>'person_name',         'ai_instruction'=>'কার বিরুদ্ধে অভিযোগ তার নাম/পরিচয় জানতে চাও',   'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'showroom_address',    'ai_instruction'=>'শো-রুম বা এলাকার নাম/ঠিকানা জানতে চাও',          'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'incident_date',       'ai_instruction'=>'ঘটনা কবে ঘটেছে জানতে চাও',                      'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'complaint_details',   'ai_instruction'=>'সম্পূর্ণ অভিযোগের বিবরণ বিস্তারিত শুনে নোট করো', 'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'district',            'ai_instruction'=>'জেলার নাম জানতে চাও',                            'is_mandatory'=>false, 'is_blocking'=>false],
+                ],
+            ],
+
+            'qm_parts' => [
+                'greeting' => '{time_greeting}! ওয়ালটন হেল্পলাইনে স্বাগতম। আপনার যন্ত্রাংশের অনুরোধ নিতে সাহায্য করব।',
+                'prompt'   => 'তুমি ওয়ালটন হেল্পলাইনের একজন বাস্তব কল সেন্টার এজেন্ট। কাস্টমারের QM Parts Query নিতে হবে। কোন পার্টস লাগবে বিস্তারিত জানো।',
+                'fields'   => [
+                    ['field_name'=>'customer_name',    'ai_instruction'=>'কাস্টমারের নাম জানতে চাও',                         'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'mobile_number',    'ai_instruction'=>'মোবাইল নম্বর জানতে চাও',                          'is_mandatory'=>true,  'is_blocking'=>true, 'min_length'=>11,'max_length'=>11],
+                    ['field_name'=>'product_name',     'ai_instruction'=>'কোন পণ্যের যন্ত্রাংশ লাগবে জানতে চাও',            'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'model_number',     'ai_instruction'=>'পণ্যের মডেল নম্বর জানতে চাও',                    'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'parts_name',       'ai_instruction'=>'কোন যন্ত্রাংশ/পার্টস লাগবে বিস্তারিত জানতে চাও', 'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'sr_reference',     'ai_instruction'=>'পূর্ববর্তী SR নম্বর আছে কিনা জানতে চাও',         'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'district',         'ai_instruction'=>'জেলার নাম জানতে চাও',                            'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'address',          'ai_instruction'=>'ডেলিভারি ঠিকানা জানতে চাও',                     'is_mandatory'=>false, 'is_blocking'=>false],
+                ],
+            ],
+
+            'qm_bill' => [
+                'greeting' => '{time_greeting}! ওয়ালটন হেল্পলাইনে স্বাগতম। আপনার বিল সংক্রান্ত প্রশ্নে সাহায্য করব।',
+                'prompt'   => 'তুমি ওয়ালটন হেল্পলাইনের একজন বাস্তব কল সেন্টার এজেন্ট। কাস্টমারের QM Bill Query নিতে হবে। বিল নিয়ে কোনো সমস্যা বা প্রশ্ন বিস্তারিত শুনো।',
+                'fields'   => [
+                    ['field_name'=>'customer_name',      'ai_instruction'=>'কাস্টমারের নাম জানতে চাও',                             'is_mandatory'=>true,  'is_blocking'=>false],
+                    ['field_name'=>'mobile_number',      'ai_instruction'=>'মোবাইল নম্বর জানতে চাও',                              'is_mandatory'=>true,  'is_blocking'=>true, 'min_length'=>11,'max_length'=>11],
+                    ['field_name'=>'sr_reference',       'ai_instruction'=>'SR নম্বর বা রেফারেন্স নম্বর আছে কিনা জানতে চাও',     'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'bill_query_details', 'ai_instruction'=>'বিল সংক্রান্ত সমস্যা বা প্রশ্ন বিস্তারিত জানতে চাও', 'is_mandatory'=>true,  'is_blocking'=>true],
+                    ['field_name'=>'bill_amount',        'ai_instruction'=>'বিলের পরিমাণ কত ছিল জানতে চাও (জানলে)',             'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'district',           'ai_instruction'=>'জেলার নাম জানতে চাও',                               'is_mandatory'=>false, 'is_blocking'=>false],
+                ],
+            ],
+
+            'survey' => [
+                'greeting' => '', // Outbound survey — script AIFormController থেকে আসবে
+                'prompt'   => 'এটি একটি Outbound Feedback Survey call। AI getLiveSetup() থেকে automatic script পাবে। IVR তে আলাদা field লাগবে না।',
+                'fields'   => [], // No fields — AI handles everything
+            ],
+
+            'general' => [
+                'greeting' => '{time_greeting}! হেল্পলাইনে স্বাগতম। কীভাবে সাহায্য করতে পারি?',
+                'prompt'   => 'তুমি একজন বাস্তব প্রফেশনাল কাস্টমার সাপোর্ট এজেন্ট। কাস্টমারের যেকোনো প্রশ্নে সাহায্য করো।',
+                'fields'   => [
+                    ['field_name'=>'customer_name', 'ai_instruction'=>'কাস্টমারের নাম জানতে চাও', 'is_mandatory'=>false, 'is_blocking'=>false],
+                    ['field_name'=>'mobile_number', 'ai_instruction'=>'মোবাইল নম্বর জানতে চাও',  'is_mandatory'=>false, 'is_blocking'=>false],
+                ],
+            ],
+        ];
+
+        return $presets[$type] ?? [];
     }
 
     public static function getPages(): array

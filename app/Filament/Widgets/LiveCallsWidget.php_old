@@ -1,0 +1,71 @@
+<?php
+
+namespace App\Filament\Widgets;
+
+use Filament\Widgets\Widget;
+use App\Models\ServiceRequest;
+use Illuminate\Support\Facades\Schema;
+
+class LiveCallsWidget extends Widget
+{
+    protected string $view = 'filament.widgets.live-calls-widget';
+
+    // প্রতি ৩ সেকেন্ডে auto refresh — real-time live call monitor
+    protected ?string $pollingInterval = '3s';
+
+    protected static ?int $sort = -2;
+
+    protected int | string | array $columnSpan = 'full';
+
+    public int $activeCalls = 0;
+    public int $todayTotal  = 0;
+    public int $lastHour    = 0;
+    public string $currentTime = '';
+    public $recentCalls;
+
+    public function mount(): void
+    {
+        $this->loadData();
+    }
+
+    public function loadData(): void
+    {
+        $this->currentTime = now()->format('H:i:s');
+        $this->recentCalls = collect();
+
+        if (!Schema::hasTable('service_requests')) return;
+
+        // 15 মিনিটের বেশি পুরনো Incoming SR auto-clear করো
+        ServiceRequest::where('status', 'Incoming')
+            ->where('created_at', '<', now()->subMinutes(15))
+            ->update(['status' => 'Drop Call']);
+
+        $this->todayTotal  = ServiceRequest::whereDate('created_at', today())->count();
+        $this->lastHour    = ServiceRequest::where('created_at', '>=', now()->subHour())->count();
+
+        // ── Real-time Live Count ─────────────────────────────────────
+        // "Live" = CallLog যেগুলো শুরু হয়েছে কিন্তু এখনো end হয়নি
+        // = status 'dropped' (শেষ না হলে dropped থাকে) + last 10 min
+        // অথবা ServiceRequest status = 'Incoming' + last 10 min
+        if (Schema::hasTable('call_logs')) {
+            $this->activeCalls = \App\Models\CallLog::where('status', 'dropped')
+                ->where('created_at', '>=', now()->subMinutes(10))
+                ->count();
+        } else {
+            $this->activeCalls = 0;
+        }
+
+        // Incoming SR গুলোও count করো (যদি CallLog না থাকে বা মিস হয়)
+        $incomingSr = ServiceRequest::where('status', 'Incoming')
+            ->where('created_at', '>=', now()->subMinutes(10))
+            ->count();
+        // দুটোর মধ্যে বড়টা নেওয়া — better accuracy
+        $this->activeCalls = max($this->activeCalls, $incomingSr);
+
+        // ── Recent calls table: ServiceRequest + CallLog join ─────────
+        $this->recentCalls = ServiceRequest::with('ivrService')
+            ->latest()
+            ->take(10)
+            ->get();
+    }
+}

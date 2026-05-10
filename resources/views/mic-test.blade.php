@@ -118,7 +118,7 @@
 
         // 📞 Call Log শুরু করো
         try {
-            const logRes = await fetch('/call-log/start', {
+            const logRes = await fetch('{{ url("/call-log/start") }}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
                 body: JSON.stringify({
@@ -135,7 +135,7 @@
         } catch(e) {} // log fail হলেও কল চলবে
 
         try {
-            const res = await fetch('/get-live-setup?ivr_key=' + selectedIvrKey + '&caller_number=' + (document.getElementById('callerNumberInput').value || ''));
+            const res = await fetch('{{ url("/get-live-setup") }}?ivr_key=' + selectedIvrKey + '&caller_number=' + (document.getElementById('callerNumberInput').value || ''));
             globalConfig = await res.json(); 
 
             if(globalConfig.status === 'error') { alert("সার্ভার এরর: " + globalConfig.message); return; }
@@ -266,7 +266,7 @@
         updateChatBox('⏳ আপনাকে আমাদের agent এর সাথে কানেক্ট করা হচ্ছে...');
 
         try {
-            const res = await fetch('/escalation/transfer', {
+            const res = await fetch('{{ url("/escalation/transfer") }}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
                 body: JSON.stringify({
@@ -344,13 +344,14 @@
                         document.getElementById('status').innerText = "ডাটাবেসে সেভ করা হচ্ছে... ⏳";
                         const selectedIvrKey = document.getElementById('ivrKeySelect').value;
 
-                        const saveRes = await fetch('/process-final-text', {
+                        const saveRes = await fetch('{{ url("/process-final-text") }}', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
                             body: JSON.stringify({
                                 text: finalTranscript,
                                 ivr_key: selectedIvrKey,
-                                caller_number: document.getElementById('callerNumberInput').value || null
+                                caller_number: document.getElementById('callerNumberInput').value || null,
+                                service_request_id: serviceRequestId || null
                             })
                         });
                         const saveData = await saveRes.json();
@@ -372,7 +373,7 @@
                         // 📞 Call Log শেষ করো
                         if (callLogId) {
                             const duration = Math.floor((Date.now() - callStartTime) / 1000);
-                            await fetch('/call-log/end', {
+                            await fetch('{{ url("/call-log/end") }}', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
                                 body: JSON.stringify({
@@ -390,7 +391,7 @@
                         // 📞 error হলে dropped log করো
                         if (callLogId) {
                             const duration = Math.floor((Date.now() - callStartTime) / 1000);
-                            await fetch('/call-log/end', {
+                            await fetch('{{ url("/call-log/end") }}', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
                                 body: JSON.stringify({ log_id: callLogId, duration: duration, status: 'dropped', service_request_id: serviceRequestId })

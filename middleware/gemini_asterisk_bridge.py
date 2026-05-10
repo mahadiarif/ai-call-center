@@ -132,6 +132,29 @@ def _post_json_sync(url: str, data: dict) -> dict:
         return {}
 
 
+def _post_form_sync(url: str, data: dict, timeout: int = 10):
+    """Blocking HTTP POST x-www-form-urlencoded — for Walton API."""
+    body = urlencode(data).encode()
+    req  = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            return json.loads(raw)
+    except Exception as e:
+        print(f"[HTTP Form] Error → {url}: {e}")
+        return None
+
+
+async def post_form(url: str, data: dict, timeout: int = 10):
+    """Async wrapper for form POST — runs in thread pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: _post_form_sync(url, data, timeout))
+
+
 def _get_json_sync(url: str) -> dict:
     """Blocking HTTP GET to Laravel API — call via run_in_executor only."""
     req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
@@ -193,6 +216,10 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     # ── Synchronization: main coroutine waits until UUID+caller resolved ─────
     caller_resolved = asyncio.Event()
 
+    # ── Call type — set after UUID lookup ────────────────────────────────────
+    call_type = "inbound"   # inbound | outbound_survey
+    survey_id = None
+
     # ── Audio buffer queue ────────────────────────────────────────────────────
     audio_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
     stop_event = asyncio.Event()
@@ -202,7 +229,7 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         Read ALL packets from Asterisk continuously and put audio into queue.
         Runs from the very beginning so the TCP buffer never fills up.
         """
-        nonlocal call_uuid, call_log_id, service_request_id, caller_number, ivr_key
+        nonlocal call_uuid, call_log_id, service_request_id, caller_number, ivr_key, call_type, survey_id
         first_packet = True
         try:
             while not stop_event.is_set():
@@ -223,7 +250,9 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                     if cr.get("status") == "success" and cr.get("caller_number"):
                         caller_number = cr["caller_number"]
                         ivr_key       = cr.get("ivr_key", DEFAULT_IVR_KEY)
-                        print(f"[DB] Caller resolved: {caller_number}, IVR key: {ivr_key}")
+                        call_type     = cr.get("call_type", "inbound")
+                        survey_id     = cr.get("survey_id")
+                        print(f"[DB] Caller resolved: {caller_number}, IVR key: {ivr_key}, type: {call_type}")
                     else:
                         # Fallback: retry once after 300ms (handles slight timing issues)
                         await asyncio.sleep(0.3)
@@ -233,7 +262,9 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                         if cr2.get("status") == "success" and cr2.get("caller_number"):
                             caller_number = cr2["caller_number"]
                             ivr_key       = cr2.get("ivr_key", DEFAULT_IVR_KEY)
-                            print(f"[DB] Caller resolved (retry): {caller_number}, IVR key: {ivr_key}")
+                            call_type     = cr2.get("call_type", "inbound")
+                            survey_id     = cr2.get("survey_id")
+                            print(f"[DB] Caller resolved (retry): {caller_number}, IVR key: {ivr_key}, type: {call_type}")
                         else:
                             print(f"[DB] UUID lookup failed (response: {cr}) — saving without number")
 
@@ -260,6 +291,14 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                     print("[Asterisk] Hangup packet received.")
                     stop_event.set()
                     await audio_queue.put(None)  # sentinel to unblock sender
+
+                    # ── Immediately mark SR as ended — don't wait for AI processing ──
+                    # This makes Live Monitor update within 2 seconds of hangup
+                    if service_request_id:
+                        asyncio.create_task(post_json(
+                            f"{LARAVEL_BASE_URL}/api/bridge/call-hangup",
+                            {"service_request_id": service_request_id, "call_log_id": call_log_id},
+                        ))
                     break
 
                 if pkt_type == PKT_AUDIO and payload:
@@ -275,6 +314,16 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         finally:
             stop_event.set()
             await audio_queue.put(None)  # ensure sender task can exit
+            # ── Always fire hangup on disconnect (clean or crash) ──────────
+            if service_request_id:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(post_json(
+                        f"{LARAVEL_BASE_URL}/api/bridge/call-hangup",
+                        {"service_request_id": service_request_id, "call_log_id": call_log_id},
+                    ))
+                except Exception:
+                    pass
 
     # Start draining Asterisk immediately — before connecting to Vertex AI
     drain_task = asyncio.create_task(drain_asterisk())
@@ -288,10 +337,17 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         print("[DB] Caller resolve timeout — proceeding without number")
 
     # ── Fetch dynamic IVR prompt + voice from Laravel ─────────────────────────
-    ivr_setup = await get_json(
-        f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
-        f"?ivr_key={ivr_key}&caller_number={caller_number or ''}"
-    )
+    if call_type == "outbound_survey" and survey_id:
+        ivr_setup = await get_json(
+            f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
+            f"?call_type=outbound_survey&survey_id={survey_id}&caller_number={caller_number or ''}"
+        )
+        print(f"[DB] Outbound survey setup fetch — survey_id={survey_id}")
+    else:
+        ivr_setup = await get_json(
+            f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
+            f"?ivr_key={ivr_key}&caller_number={caller_number or ''}"
+        )
     if ivr_setup.get("status") == "error" or not ivr_setup.get("prompt"):
         print("[DB] Could not fetch IVR prompt — using fallback prompt.")
         system_prompt = FALLBACK_SYSTEM_PROMPT
@@ -300,6 +356,105 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         system_prompt = ivr_setup["prompt"]
         voice_name    = ivr_setup.get("voice_gender", "Charon")
         print(f"[DB] IVR prompt fetched ({len(system_prompt)} chars), voice={voice_name}")
+
+    # ── ★ Walton SR Lookup — caller এর পুরানো SR আছে কিনা দেখো ★ ─────────────
+    # Outbound survey call এ এই lookup বাদ দাও — survey record এ ইতিমধ্যে
+    # সঠিক SR data আছে (prompt এ inject হয়েছে)। Walton API lookup করলে
+    # পুরনো inbound SR inject হয়ে prompt dirty হয়।
+    walton_sr_context = ""
+    # existing open SR — pre-register এ পাঠাবো যাতে duplicate না হয়
+    existing_open_walton_sr  = None   # e.g. "09052600002"
+    existing_open_sr_product = None   # e.g. "REFRIGERATOR"
+    existing_open_sr_status  = None   # e.g. "Pending"
+
+    OPEN_STATUSES = {"pending", "in process", "in-process", "processing", "escalation requested", "new"}
+
+    if caller_number and call_type != "outbound_survey":
+        try:
+            walton_resp = await post_form(
+                "http://192.168.117.135:8080/webApiProduction/local_116_228/webCrmSrSearch.php",
+                {
+                    "CUSTOMER_MOBILE": caller_number.lstrip("+"),
+                    "username": "walton",
+                    "key": "xHj0LoH!9%4VVWYWQilrti",
+                },
+                timeout=5
+            )
+            # Normalize to list
+            sr_list = []
+            if isinstance(walton_resp, list):
+                sr_list = walton_resp
+            elif isinstance(walton_resp, dict) and walton_resp.get("SERVICE_NO"):
+                sr_list = [walton_resp]
+
+            if sr_list:
+                latest    = sr_list[0]
+                sr_no     = latest.get("SERVICE_NO", "—")
+                sr_status = latest.get("SERVICE_STATUS", "—")
+                product   = latest.get("PRODUCT", latest.get("ITEM_NAME", "—"))
+                problem   = latest.get("PROBLEMS", "—")
+                created   = latest.get("CREATED_DATE", "—")
+
+                # Check if latest SR is still open (not resolved/closed)
+                is_open = sr_status.lower().strip() in OPEN_STATUSES
+
+                if is_open:
+                    existing_open_walton_sr  = sr_no
+                    existing_open_sr_product = product
+                    existing_open_sr_status  = sr_status
+                    walton_sr_context = (
+                        f"\n\n[WALTON SR — OPEN TICKET FOUND FOR CALLER: {caller_number}]\n"
+                        f"⚠️ এই কাস্টমারের একটি চলমান SR আছে:\n"
+                        f"  SR নম্বর : {sr_no}\n"
+                        f"  পণ্য     : {product}\n"
+                        f"  সমস্যা   : {problem}\n"
+                        f"  তারিখ    : {created}\n"
+                        f"  Status   : {sr_status}\n\n"
+                        f"🔴 AI নির্দেশনা:\n"
+                        f"  1. কাস্টমার SR IVR তে এলে আগেই বলো: 'স্যার, আপনার {sr_no} নম্বরে একটি সার্ভিস রিকোয়েস্ট চলমান আছে।'\n"
+                        f"  2. জিজ্ঞেস করো: 'এটা কি সেই একই সমস্যার বিষয়ে, নাকি নতুন কোনো সমস্যা?'\n"
+                        f"  3. একই সমস্যা হলে → নতুন SR করবে না, আমাদের Laravel-কে জানাবে existing SR update করতে।\n"
+                        f"  4. সম্পূর্ণ নতুন পণ্য বা নতুন সমস্যা হলেই শুধু নতুন SR করবে।\n"
+                        f"  5. কাস্টমার SR নম্বর জানতে চাইলে বলো: '{sr_no}'\n"
+                    )
+                    print(f"[Walton] ⚠️ OPEN SR found: {sr_no} ({sr_status}) for {caller_number}")
+                else:
+                    # SR resolved/closed — new SR allowed
+                    walton_sr_context = (
+                        f"\n\n[WALTON SR HISTORY — CALLER: {caller_number}]\n"
+                        f"সর্বশেষ SR নম্বর: {sr_no} (Status: {sr_status} — বন্ধ)\n"
+                        f"পণ্য: {product} | সমস্যা: {problem}\n"
+                        f"মোট SR: {len(sr_list)} টি\n"
+                        f"[AI: আগের SR বন্ধ হয়েছে — নতুন সমস্যায় নতুন SR করা যাবে।]\n"
+                    )
+                    print(f"[Walton] ✅ SR {sr_no} is CLOSED ({sr_status}) — new SR allowed for {caller_number}")
+            else:
+                print(f"[Walton] ℹ️ No previous SR found for {caller_number}")
+        except Exception as e:
+            print(f"[Walton] ⚠️ SR lookup failed (VPN not connected?): {e}")
+
+    # Walton SR context টা system_prompt এ inject করো
+    if walton_sr_context:
+        system_prompt = system_prompt + walton_sr_context
+
+    # ── ★ STRONG LANGUAGE LOCK — prevent Hindi mis-transcription ★ ────────────
+    # Gemini Live ASR sometimes wrongly detects Bangladeshi Bengali as Hindi
+    # (e.g. "amar" → "hamra"). Prepend a hard language directive.
+    LANGUAGE_LOCK = (
+        "🔒 ABSOLUTE LANGUAGE RULE — READ FIRST 🔒\n"
+        "1. The customer is a NATIVE BANGLADESHI BENGALI speaker. They speak ONLY Bengali (বাংলা).\n"
+        "2. Customer NEVER speaks Hindi, Urdu, Telugu, Korean, or any other language.\n"
+        "3. If audio sounds Hindi-like (e.g. 'hamra', 'mera', 'kahan', 'haan'), it is ACTUALLY Bengali — interpret as Bengali.\n"
+        "   • 'hamra' = 'আমার' (amar)\n"
+        "   • 'mera' = 'আমার' (amar)\n"
+        "   • 'kahan' = 'কোথায়' (kothay)\n"
+        "   • 'haan' = 'হ্যাঁ' (hyaa)\n"
+        "4. ALWAYS respond in Bengali (বাংলা script).\n"
+        "5. ALWAYS transcribe customer audio as Bengali — NEVER as Hindi/Romanized Hindi/Devanagari script.\n"
+        "6. If you cannot understand a word, ask the customer to repeat in Bengali — do NOT guess Hindi.\n\n"
+        "═══════════════════════════════════════════════\n\n"
+    )
+    system_prompt = LANGUAGE_LOCK + system_prompt
     # ── Connect to Vertex AI ──────────────────────────────────────────────────
     try:
         wss_url   = await get_vertex_wss_url()   # runs in thread pool
@@ -333,7 +488,9 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                 },
             },
             # ━━ Enable transcription — mic-test.blade.php এর মতো data পাবো ━━
-            "inputAudioTranscription":  {},   # customer এর কথা text এ → ai_text_log
+            # Note: Vertex AI Gemini Live does NOT support languageCode in setup
+            # Bengali filter is applied in Python after receiving transcript (see below)
+            "inputAudioTranscription":  {},   # customer এর কথা text এ → customer_buf
             "outputAudioTranscription": {},   # AI এর কথা text এ → ai_text_log
             "systemInstruction": {
                 "parts": [{"text": system_prompt}]
@@ -419,6 +576,74 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         INTERVAL = 0.020  # 20ms per 320-byte slin frame
         loop = asyncio.get_running_loop()
         total_frames_sent = 0
+        sr_pre_saved = False  # prevent duplicate pre-register calls
+
+        # ── Pre-register SR during live call ─────────────────────────────────
+        # Trigger phrase — must match what AI says in prompt
+        SAVE_TRIGGERS = ['রেজিস্ট্রেশন প্রক্রিয়াধীন', 'রেজিস্ট্রেশন সম্পন্ন হচ্ছে', 'প্রক্রিয়া চলছে', 'একটু অপেক্ষা করুন']
+
+        async def _pre_register_sr():
+            """Call Laravel to create SR ticket + Walton push, inject srNo back to Gemini."""
+            sr_display = 'PENDING'
+            ticket_id  = None
+            try:
+                transcript_text = "\n".join(ai_text_log)
+                resp = await post_json(
+                    f"{LARAVEL_BASE_URL}/api/bridge/pre-register-ticket",
+                    {
+                        "transcript":              transcript_text,
+                        "service_request_id":      service_request_id,
+                        "caller_number":           caller_number,
+                        "ivr_key":                 ivr_key,
+                        "existing_walton_sr":      existing_open_walton_sr,   # open SR থাকলে পাঠাও
+                        "existing_walton_product": existing_open_sr_product,
+                        "existing_walton_status":  existing_open_sr_status,
+                    }
+                )
+                walton_sr = resp.get('walton_sr') or ''
+                our_sr    = resp.get('our_sr', '')
+                ticket_id = resp.get('ticket_id')
+                print(f"[PreSave] ✅ SR created: walton={walton_sr} our={our_sr} ticket={ticket_id}")
+                if walton_sr:
+                    sr_display = walton_sr
+                elif ticket_id:
+                    # Walton push may be slow — poll up to 5 times (every 3s = 15s max)
+                    print(f"[PreSave] No walton_sr yet, polling for ticket_id={ticket_id}...")
+                    for attempt in range(5):
+                        await asyncio.sleep(3)
+                        try:
+                            poll_resp = await post_json(
+                                f"{LARAVEL_BASE_URL}/api/bridge/check-walton-sr",
+                                {"ticket_id": ticket_id}
+                            )
+                            polled_sr = poll_resp.get('walton_sr') or ''
+                            print(f"[PreSave] Poll #{attempt+1}: walton_sr={polled_sr}")
+                            if polled_sr:
+                                sr_display = polled_sr
+                                break
+                        except Exception as pe:
+                            print(f"[PreSave] Poll #{attempt+1} failed: {pe}")
+                    if sr_display == 'PENDING':
+                        print(f"[PreSave] All polls done, walton_sr still not available. our_sr={our_sr}")
+                        # our_sr (WLT-xxx) is internal only — never speak to customer
+                        # Keep sr_display as 'PENDING' so AI says SMS will arrive
+                        # (do NOT set sr_display = our_sr here)
+            except Exception as e:
+                sr_display = 'PENDING'
+                print(f"[PreSave] ❌ Error: {e}")
+            print(f"[PreSave] Final sr_display={sr_display}")
+
+            # Inject SR number back to Gemini so AI can announce it
+            try:
+                await vertex_ws.send(json.dumps({
+                    "client_content": {
+                        "turns": [{"role": "user", "parts": [{"text": f"SYSTEM_SR_READY:{sr_display}"}]}],
+                        "turnComplete": True
+                    }
+                }))
+                print(f"[PreSave] Injected SYSTEM_SR_READY:{sr_display} to Gemini")
+            except Exception as e:
+                print(f"[PreSave] Failed to inject SR number: {e}")
 
         try:
             async for raw_msg in vertex_ws:
@@ -451,7 +676,18 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                 # ── Accumulate customer input transcript chunks ──────────────────
                 input_tr = server_content.get("inputTranscription")
                 if input_tr and input_tr.get("text"):
-                    customer_buf.append(input_tr["text"])
+                    raw_text = input_tr["text"]
+                    # 🌐 Bengali-only filter: Devanagari/Hindi script সরাও
+                    # Bengali: \u0980-\u09FF | ASCII | space — এগুলো রাখো
+                    # Devanagari: \u0900-\u097F — সরাও
+                    import re as _re
+                    clean_text = _re.sub(
+                        r'[\u0900-\u097F\u0600-\u06FF\u0C00-\u0C7F\uAC00-\uD7AF\u4E00-\u9FFF\u3040-\u30FF\u0400-\u04FF]+',
+                        '', raw_text
+                    ).strip()
+                    # যদি clean text অর্থপূর্ণ হয় তাহলে রাখো, না হলে raw রাখো
+                    final_text = clean_text if len(clean_text) >= 2 else raw_text
+                    customer_buf.append(final_text)
 
                 # ── On turnComplete → flush buffers as complete sentences ─────────
                 # This mirrors mic-test agentChatHistory — complete turns only
@@ -461,6 +697,49 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                         if full:
                             ai_text_log.append(f"এজেন্ট: {full}")
                             print(f"[Agent] {full}")
+
+                            # 🔔 SR Pre-register trigger — detect when AI says the save phrase
+                            if not sr_pre_saved and any(t in full for t in SAVE_TRIGGERS):
+                                sr_pre_saved = True
+                                print(f"[PreSave] Trigger detected — launching pre-register task")
+                                asyncio.create_task(_pre_register_sr())
+
+                            # 🚨 ESCALATION trigger — AI যেকোনো forward/transfer phrase বললেই trigger
+                            ESCALATION_TRIGGERS = [
+                                # Tag-based (AI prompt এ এই tags দেওয়া আছে)
+                                '[escalation]', '[transfer]', '[agent_transfer]',
+                                # বাংলা phrases — AI এগুলো বলতে পারে
+                                'এজেন্ট এর সাথে কানেক্ট', 'এজেন্টের সাথে কানেক্ট',
+                                'মানুষের সাথে কথা', 'মানুষের সাথে বলতে',
+                                'আমাদের agent', 'আমাদের এজেন্ট',
+                                'agent এর সাথে', 'এজেন্ট এর সাথে',
+                                'transfer করছি', 'ট্রান্সফার করছি',
+                                'forward করছি', 'ফরওয়ার্ড করছি',
+                                'connect করছি', 'কানেক্ট করছি',
+                                'লাইনে দিচ্ছি', 'সংযুক্ত করছি',
+                                'বিশেষজ্ঞের সাথে', 'বিশেষজ্ঞ agent',
+                                'human agent', 'Human Agent',
+                                'কল ট্রান্সফার', 'call transfer',
+                                'এখনই agent', 'এখনই এজেন্ট',
+                            ]
+                            if any(t.lower() in full.lower() for t in ESCALATION_TRIGGERS):
+                                print(f"[Escalation] Trigger detected — calling transfer API")
+                                async def _trigger_escalation():
+                                    try:
+                                        await post_json(
+                                            f"{LARAVEL_BASE_URL}/api/bridge/transfer-to-agent",
+                                            {
+                                                "ivr_key":            ivr_key,
+                                                "service_request_id": service_request_id,
+                                                "caller_number":      caller_number,
+                                                "reason":             "ai_triggered",
+                                            }
+                                        )
+                                        print(f"[Escalation] Transfer API called")
+                                    except Exception as ex:
+                                        print(f"[Escalation] Transfer API error: {ex}")
+                                asyncio.create_task(_trigger_escalation())
+
                         agent_buf.clear()
                     if customer_buf:
                         full = "".join(customer_buf).strip()
@@ -554,13 +833,18 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         )
 
         print("[DB] Sending transcript to Laravel for data extraction...")
+        final_text_payload = {
+            "text":               transcript,
+            "ivr_key":            ivr_key,
+            "caller_number":      caller_number,
+            "service_request_id": service_request_id,
+            "call_type":          call_type,     # outbound_survey → survey result saving
+        }
+        if survey_id:
+            final_text_payload["survey_id"] = survey_id
         save_resp = await post_json(
             f"{LARAVEL_BASE_URL}/api/bridge/process-final-text",
-            {
-                "text":          transcript,
-                "ivr_key":       ivr_key,
-                "caller_number": caller_number,
-            },
+            final_text_payload,
         )
         save_status = save_resp.get("status", "dropped")
         print(f"[DB] process-final-text → status={save_status}")

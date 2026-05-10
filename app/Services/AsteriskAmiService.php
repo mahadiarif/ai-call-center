@@ -36,6 +36,7 @@ class AsteriskAmiService
         $response = $this->read();
 
         if (str_contains($response, 'Success')) {
+            $this->drainEvents(); // FullyBooted ইত্যাদি events flush করো
             return true;
         }
 
@@ -61,18 +62,83 @@ class AsteriskAmiService
         }
     }
 
-    // Response পড়ো
+    // Response পড়ো — Event block (FullyBooted etc.) skip করে শুধু Response: block return করো
     private function read(): string
     {
-        $response = '';
-        if (!$this->socket) return $response;
+        if (!$this->socket) return '';
 
-        stream_set_timeout($this->socket, 3);
-        while ($line = fgets($this->socket, 1024)) {
-            $response .= $line;
-            if (trim($line) === '') break; // blank line = end of response
+        stream_set_timeout($this->socket, 5);
+        $buffer = '';
+        while ($line = fgets($this->socket, 4096)) {
+            $buffer .= $line;
+            if (trim($line) === '') {
+                // blank line = end of one block
+                // Response: block হলে return করো, Event: block হলে skip করো
+                if (str_contains($buffer, 'Response:')) {
+                    return $buffer;
+                }
+                $buffer = ''; // Event block — discard, পরেরটা পড়ো
+            }
+            // timeout হলে যা আছে তা return করো
+            $info = stream_get_meta_data($this->socket);
+            if (!empty($info['timed_out'])) break;
         }
-        return $response;
+        return $buffer; // fallback
+    }
+
+    // Login এর পরে queued events (FullyBooted ইত্যাদি) drain করো
+    private function drainEvents(): void
+    {
+        stream_set_timeout($this->socket, 1);
+        while ($line = fgets($this->socket, 4096)) {
+            // just drain — nothing to do
+        }
+        stream_set_timeout($this->socket, 5);
+    }
+
+    /**
+     * Caller number দিয়ে active Asterisk channel name খোঁজো
+     * e.g. "01617020303" → "PJSIP/trunk-provider-00000001"
+     */
+    public function findChannelByCallerNumber(string $callerNumber): ?string
+    {
+        try {
+            if (!$this->connect()) return null;
+
+            // CoreShowChannels — all active channels list
+            $this->send("Action: CoreShowChannels\r\nActionID: lookup1\r\n\r\n");
+
+            // Read until CoreShowChannelsComplete
+            $allData = '';
+            stream_set_timeout($this->socket, 5);
+            $deadline = time() + 5;
+            while (time() < $deadline) {
+                $line = fgets($this->socket, 4096);
+                if ($line === false) break;
+                $allData .= $line;
+                if (str_contains($line, 'CoreShowChannelsComplete')) break;
+            }
+            $this->disconnect();
+
+            // Parse channel blocks — find one where CallerIDNum matches
+            $clean = preg_replace('/\D/', '', $callerNumber);
+            $blocks = explode("\r\n\r\n", $allData);
+            foreach ($blocks as $block) {
+                if (!str_contains($block, 'Event: CoreShowChannel')) continue;
+                if (preg_match('/CallerIDNum:\s*(\S+)/i', $block, $cidm)) {
+                    $blockNum = preg_replace('/\D/', '', $cidm[1]);
+                    if ($blockNum === $clean || str_ends_with($blockNum, $clean) || str_ends_with($clean, $blockNum)) {
+                        if (preg_match('/Channel:\s*(\S+)/i', $block, $chanm)) {
+                            return trim($chanm[1]);
+                        }
+                    }
+                }
+            }
+            return null;
+        } catch (\Throwable $e) {
+            Log::error("[findChannel] " . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -120,29 +186,107 @@ class AsteriskAmiService
     }
 
     /**
-     * Agent কে Originate করো (agent কে call করো, তারপর কাস্টমারের সাথে bridge করো)
-     *
-     * @param string $agentNumber     Agent এর extension/নম্বর
-     * @param string $customerChannel কাস্টমারের channel
+     * IVR escalation — AMI দিয়ে agent কে call করো (customer channel জানা না থাকলেও কাজ করে)
+     * Strategy: Originate → agent extension → agentটি যখন pick up করবে তখন customer এর sr/number দেখবে
      */
-    public function originateToAgent(string $agentNumber, string $customerChannel): array
+    public function originateToAgent(string $agentNumber, string $customerChannel = null): array
     {
         $context  = env('ASTERISK_CONTEXT', 'from-internal');
-        $callerId = env('ASTERISK_CALLER_ID', 'AI Agent <0000>');
+        $callerId = env('ASTERISK_CALLER_ID', 'Walton Helpline <16267>');
 
         try {
             if (!$this->connect()) {
                 return ['success' => false, 'message' => 'Asterisk AMI connect হয়নি'];
             }
 
+            if ($customerChannel) {
+                // Channel আছে → Redirect (bridge করো)
+                $action = "Action: Redirect\r\n"
+                        . "Channel: {$customerChannel}\r\n"
+                        . "Context: escalation-forward\r\n"
+                        . "Exten: {$agentNumber}\r\n"
+                        . "Priority: 1\r\n"
+                        . "\r\n";
+            } else {
+                // Channel নেই → agent কে Originate করো
+                // Mobile number (01x / 09x) হলে PJSIP via trunk, extension হলে direct PJSIP
+                $outboundTrunk = env('ASTERISK_OUTBOUND_TRUNK', 'PJSIP/trunk-provider');
+                if (preg_match('/^0[19]\d{9}$/', $agentNumber) && stripos($outboundTrunk, 'PJSIP/') === 0) {
+                    $endpointName  = substr($outboundTrunk, 6); // strip "PJSIP/"
+                    $agentChannel  = "PJSIP/{$agentNumber}@{$endpointName}";
+                } else {
+                    $agentChannel  = "PJSIP/{$agentNumber}"; // local extension
+                }
+                $action = "Action: Originate\r\n"
+                        . "Channel: {$agentChannel}\r\n"
+                        . "Context: {$context}\r\n"
+                        . "Exten: {$agentNumber}\r\n"
+                        . "Priority: 1\r\n"
+                        . "CallerID: {$callerId}\r\n"
+                        . "Timeout: 30000\r\n"
+                        . "Async: true\r\n"
+                        . "\r\n";
+            }
+
+            $this->send($action);
+            $response = $this->read();
+            $this->disconnect();
+
+            if (str_contains($response, 'Success')) {
+                return ['success' => true, 'message' => "Agent {$agentNumber} কে call দেওয়া হচ্ছে"];
+            }
+
+            Log::warning("[originateToAgent] failed: {$response}");
+            return ['success' => false, 'message' => trim($response)];
+
+        } catch (\Throwable $e) {
+            Log::error("[originateToAgent] error: " . $e->getMessage());
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Outbound Survey Call — কাস্টমারকে সরাসরি call করো
+     * Campaign এর pending survey record থেকে একটি নম্বরে call dial করবে।
+     *
+     * @param string $mobileNumber  কাস্টমারের বাংলাদেশ মোবাইল নম্বর (01XXXXXXXXX)
+     * @param int    $surveyId      FeedbackSurvey.id — AI prompt এ customer info পাবে
+     * @param string $trunkName     SIP Trunk নাম (যেমন: "SIP/trunk-gp" বা "DAHDI/g1")
+     */
+    public function originateSurveyCall(string $mobileNumber, int $surveyId, string $trunkName = null): array
+    {
+        $trunk    = $trunkName ?? env('ASTERISK_OUTBOUND_TRUNK', 'PJSIP/trunk-provider');
+        $context  = env('ASTERISK_OUTBOUND_CONTEXT', 'outbound-survey');
+        $callerId = env('ASTERISK_CALLER_ID', 'Walton Helpline <16267>');
+        $appUrl   = rtrim(env('APP_URL', 'http://localhost'), '/');
+
+        // Channel format:
+        //   PJSIP → "PJSIP/NUMBER@endpoint"  (e.g. PJSIP/01617020303@trunk-provider)
+        //   SIP   → "SIP/trunk/NUMBER"        (e.g. SIP/trunk-gp/01617020303)
+        if (stripos($trunk, 'PJSIP/') === 0) {
+            // "PJSIP/trunk-provider" → "PJSIP/01617020303@trunk-provider"
+            $endpointName = substr($trunk, 6); // strip "PJSIP/"
+            $channel = "PJSIP/{$mobileNumber}@{$endpointName}";
+        } else {
+            // Legacy SIP/DAHDI: keep slash format
+            $channel = "{$trunk}/{$mobileNumber}";
+        }
+        try {
+            if (!$this->connect()) {
+                return ['success' => false, 'message' => 'Asterisk AMI connect হয়নি'];
+            }
+
+            // Originate: Asterisk → কাস্টমারকে dial করবে → connect হলে outbound-survey context এ যাবে
             $action = "Action: Originate\r\n"
-                    . "Channel: Local/{$agentNumber}@{$context}\r\n"
-                    . "Exten: {$agentNumber}\r\n"
+                    . "Channel: {$channel}\r\n"
                     . "Context: {$context}\r\n"
+                    . "Exten: s\r\n"
                     . "Priority: 1\r\n"
                     . "CallerID: {$callerId}\r\n"
                     . "Timeout: 30000\r\n"
-                    . "Variable: CUSTOMER_CHANNEL={$customerChannel}\r\n"
+                    . "Variable: SURVEY_ID={$surveyId}\r\n"
+                    . "Variable: CUSTOMER_NUMBER={$mobileNumber}\r\n"
+                    . "Variable: APP_URL={$appUrl}\r\n"
                     . "Async: true\r\n"
                     . "\r\n";
 
@@ -151,12 +295,15 @@ class AsteriskAmiService
             $this->disconnect();
 
             if (str_contains($response, 'Success')) {
-                return ['success' => true, 'message' => "Agent {$agentNumber} কে call করা হচ্ছে..."];
+                Log::info("[OutboundSurvey] Call initiated → {$mobileNumber} (survey #{$surveyId})");
+                return ['success' => true, 'message' => "{$mobileNumber} নম্বরে call দেওয়া হচ্ছে..."];
             }
-            return ['success' => false, 'message' => 'Originate failed: ' . trim($response)];
+
+            Log::warning("[OutboundSurvey] Originate failed → {$mobileNumber}: {$response}");
+            return ['success' => false, 'message' => 'Call দেওয়া যায়নি: ' . trim($response)];
 
         } catch (\Throwable $e) {
-            Log::error("Asterisk Originate error: " . $e->getMessage());
+            Log::error("[OutboundSurvey] AMI error: " . $e->getMessage());
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }

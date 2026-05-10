@@ -17,6 +17,13 @@ class CallLog extends Model
         return $this->belongsTo(IvrService::class);
     }
 
+    // এই call এর caller number এর সবচেয়ে recent SR ticket
+    public function latestSrTicket()
+    {
+        return $this->hasOne(\App\Models\SrTicket::class, 'mobile_number', 'caller_number')
+                    ->latest('id');
+    }
+
     // Duration কে মিনিট:সেকেন্ড ফরম্যাটে দেখানো
     public function getDurationFormattedAttribute(): string
     {
