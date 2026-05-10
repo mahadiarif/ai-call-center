@@ -2,103 +2,102 @@
     <x-filament::section>
         <div wire:poll.2000ms>
             {{-- Header --}}
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-3">
-                    <span class="relative flex h-3 w-3">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem;">
+                <div style="display:flex; align-items:center; gap:0.75rem;">
+                    <div style="position:relative; display:flex; height:0.75rem; width:0.75rem;">
                         @if($activeCalls > 0)
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-3 w-3 bg-success-500"></span>
+                            <span style="position:absolute; height:100%; width:100%; border-radius:9999px; background-color:rgb(34, 197, 94); opacity:0.75; animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+                            <span style="position:relative; height:0.75rem; width:0.75rem; border-radius:9999px; background-color:rgb(34, 197, 94);"></span>
                         @else
-                            <span class="relative inline-flex rounded-full h-3 w-3 bg-gray-400 dark:bg-gray-600"></span>
+                            <span style="position:relative; height:0.75rem; width:0.75rem; border-radius:9999px; background-color:rgb(156, 163, 175);"></span>
                         @endif
-                    </span>
-                    <h3 class="text-lg font-bold text-gray-900 dark:text-white">📞 Live Call Monitor</h3>
+                    </div>
+                    <h3 style="font-size:1.125rem; font-weight:700;">📞 Live Call Monitor</h3>
                 </div>
-                <span class="text-xs text-gray-500 dark:text-gray-400 font-mono"> BD Time: {{ $currentTime }}</span>
+                <span style="font-size:0.75rem; color:rgb(156, 163, 175); font-family:monospace;">BD Time: {{ $currentTime }}</span>
             </div>
 
             {{-- Stats Cards --}}
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1.5rem;">
                 {{-- Active Now --}}
-                <div class="p-4 rounded-xl border-2 transition-all {{ $activeCalls > 0 ? 'border-success-500 bg-success-50 dark:bg-success-950/20' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50' }}">
-                    <div class="text-3xl font-black {{ $activeCalls > 0 ? 'text-success-600 dark:text-success-400' : 'text-gray-400 dark:text-gray-600' }}">
+                <div style="padding:1rem; border-radius:0.75rem; border:2px solid {{ $activeCalls > 0 ? 'rgb(34, 197, 94)' : 'rgba(156, 163, 175, 0.2)' }}; background-color: {{ $activeCalls > 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(156, 163, 175, 0.05)' }};">
+                    <div style="font-size:1.875rem; font-weight:900; color: {{ $activeCalls > 0 ? 'rgb(34, 197, 94)' : 'rgb(156, 163, 175)' }};">
                         {{ $activeCalls }}
                     </div>
-                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 {{ $activeCalls > 0 ? 'text-success-700 dark:text-success-500' : 'text-gray-500' }}">
+                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem;">
                         🔴 Active Now
                     </div>
                 </div>
 
                 {{-- Last 1 Hour --}}
-                <div class="p-4 rounded-xl border-2 border-primary-200 dark:border-primary-900 bg-primary-50 dark:bg-primary-950/20">
-                    <div class="text-3xl font-black text-primary-600 dark:text-primary-400">{{ $lastHour }}</div>
-                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-primary-700 dark:text-primary-500">⏱ Last 1 Hour</div>
+                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(59, 130, 246); background-color: rgba(59, 130, 246, 0.1);">
+                    <div style="font-size:1.875rem; font-weight:900; color: rgb(59, 130, 246);">{{ $lastHour }}</div>
+                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(59, 130, 246);">⏱ Last 1 Hour</div>
                 </div>
 
                 {{-- Today Total --}}
-                <div class="p-4 rounded-xl border-2 border-info-200 dark:border-info-900 bg-info-50 dark:bg-info-950/20">
-                    <div class="text-3xl font-black text-info-600 dark:text-info-400">{{ $todayTotal }}</div>
-                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-info-700 dark:text-info-500">📅 Today Total</div>
+                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(139, 92, 246); background-color: rgba(139, 92, 246, 0.1);">
+                    <div style="font-size:1.875rem; font-weight:900; color: rgb(139, 92, 246);">{{ $todayTotal }}</div>
+                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(139, 92, 246);">📅 Today Total</div>
                 </div>
 
                 {{-- AI Latency --}}
-                <div class="p-4 rounded-xl border-2 border-warning-200 dark:border-warning-900 bg-warning-50 dark:bg-warning-950/20">
-                    <div class="text-3xl font-black text-warning-600 dark:text-warning-400">{{ number_format($avgLatency / 1000, 2) }}s</div>
-                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-warning-700 dark:text-warning-500">⚡ AI Latency (Avg)</div>
+                <div style="padding:1rem; border-radius:0.75rem; border:2px solid rgb(245, 158, 11); background-color: rgba(245, 158, 11, 0.1);">
+                    <div style="font-size:1.875rem; font-weight:900; color: rgb(245, 158, 11);">{{ number_format($avgLatency / 1000, 2) }}s</div>
+                    <div style="font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-top:0.25rem; color: rgb(245, 158, 11);">⚡ AI Latency (Avg)</div>
                 </div>
             </div>
 
             {{-- Recent Calls Table --}}
             @if($recentCalls && $recentCalls->count() > 0)
-                <div class="flex items-center gap-2 mb-3">
-                    <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">🕑 Recent Activity</p>
-                </div>
-                <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-gray-50 dark:bg-gray-800/50">
+                <p style="font-size:0.875rem; font-weight:600; margin-bottom:0.75rem;">🕑 Recent Activity</p>
+                <div style="overflow:hidden; border-radius:0.5rem; border:1px solid rgba(156, 163, 175, 0.2);">
+                    <table style="width:100%; text-align:left; font-size:0.875rem; border-collapse: collapse;">
+                        <thead style="background-color: rgba(156, 163, 175, 0.05);">
                             <tr>
-                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Customer</th>
-                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">IVR Service</th>
-                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-center">Status</th>
-                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-right">Duration / Time</th>
+                                <th style="padding:0.75rem 1rem; font-weight:600;">Customer</th>
+                                <th style="padding:0.75rem 1rem; font-weight:600;">IVR Service</th>
+                                <th style="padding:0.75rem 1rem; font-weight:600; text-align:center;">Status</th>
+                                <th style="padding:0.75rem 1rem; font-weight:600; text-align:right;">Duration</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                        <tbody style="background-color: transparent;">
                             @foreach($recentCalls as $call)
                                 @php
                                     $isLive = $call->status === 'Incoming' && $call->created_at->diffInMinutes(now()) < 15;
                                     $durationSec = $isLive ? $call->created_at->diffInSeconds(now()) : $call->created_at->diffInSeconds($call->updated_at);
                                     $durationStr = $durationSec >= 60 ? floor($durationSec/60) . 'm ' . ($durationSec%60) . 's' : $durationSec . 's';
+                                    $rowBg = $isLive ? 'rgba(34, 197, 94, 0.05)' : 'transparent';
                                 @endphp
-                                <tr class="{{ $isLive ? 'bg-success-50/50 dark:bg-success-950/10' : 'bg-white dark:bg-gray-900' }}">
-                                    <td class="px-4 py-3">
-                                        <div class="flex flex-col">
-                                            <span class="font-medium text-gray-900 dark:text-white">{{ $call->customer_name ?: 'Unknown' }}</span>
-                                            <span class="text-xs text-gray-500">{{ $call->mobile_number }}</span>
+                                <tr style="background-color: {{ $rowBg }}; border-top: 1px solid rgba(156, 163, 175, 0.1);">
+                                    <td style="padding:0.75rem 1rem;">
+                                        <div style="display:flex; flex-direction:column;">
+                                            <span style="font-weight:600;">{{ $call->customer_name ?: 'Unknown' }}</span>
+                                            <span style="font-size:0.75rem; color:rgb(156, 163, 175);">{{ $call->mobile_number }}</span>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    <td style="padding:0.75rem 1rem; color:rgb(107, 114, 128);">
                                         {{ $call->ivrService?->service_name ?: 'General' }}
                                     </td>
-                                    <td class="px-4 py-3 text-center">
+                                    <td style="padding:0.75rem 1rem; text-align:center;">
                                         @php
                                             $badgeColor = match($call->status) {
-                                                'Incoming' => 'success',
-                                                'Resolved' => 'info',
-                                                'Drop Call' => 'danger',
-                                                default => 'gray'
+                                                'Incoming' => 'rgb(34, 197, 94)',
+                                                'Resolved' => 'rgb(59, 130, 246)',
+                                                'Drop Call' => 'rgb(239, 68, 68)',
+                                                default => 'rgb(156, 163, 175)'
                                             };
                                         @endphp
-                                        <x-filament::badge :color="$badgeColor">
+                                        <span style="padding:0.125rem 0.5rem; border-radius:9999px; font-size:0.75rem; font-weight:600; background-color:{{ $badgeColor }}; color:white;">
                                             {{ $call->status }}
-                                        </x-filament::badge>
+                                        </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
-                                        <div class="flex flex-col items-end">
-                                            <span class="font-mono font-bold {{ $isLive ? 'text-success-600 animate-pulse' : 'text-gray-600 dark:text-gray-400' }}">
+                                    <td style="padding:0.75rem 1rem; text-align:right;">
+                                        <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                                            <span style="font-weight:700; color: {{ $isLive ? 'rgb(34, 197, 94)' : 'inherit' }}">
                                                 {{ $durationStr }}
                                             </span>
-                                            <span class="text-[10px] text-gray-400 italic">{{ $call->created_at->diffForHumans() }}</span>
+                                            <span style="font-size:0.625rem; color:rgb(156, 163, 175);">{{ $call->created_at->diffForHumans() }}</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -107,11 +106,19 @@
                     </table>
                 </div>
             @else
-                <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-600">
-                    <x-heroicon-o-phone-x-mark class="w-12 h-12 mb-2 opacity-20" />
-                    <p class="text-sm">No live calls at the moment</p>
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:3rem 0; color:rgb(156, 163, 175);">
+                    <p style="font-size:0.875rem;">No live calls at the moment</p>
                 </div>
             @endif
         </div>
     </x-filament::section>
+    
+    <style>
+        @keyframes ping {
+            75%, 100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+    </style>
 </x-filament-widgets::widget>
