@@ -1,4 +1,4 @@
-<div style="width: 100%; display: flex; flex-direction: column; gap: 1.5rem;">
+<div style="width: 100% !important; display: flex; flex-direction: column; gap: 1.5rem;">
     {{-- Top Stats Grid --}}
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; width: 100%;">
         {{-- Live Calls Card --}}

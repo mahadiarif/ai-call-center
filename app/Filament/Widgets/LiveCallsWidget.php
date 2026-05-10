@@ -13,9 +13,12 @@ class LiveCallsWidget extends Widget
     // প্রতি ২ সেকেন্ডে auto refresh — real-time live call monitor
     protected ?string $pollingInterval = '2s';
 
-    protected static ?int $sort = -2;
-
     protected int | string | array $columnSpan = 'full';
+
+    public static function canView(): bool
+    {
+        return true;
+    }
 
     // getViewData() প্রতিটি render/poll-এ fresh data দেয়
     protected function getViewData(): array
