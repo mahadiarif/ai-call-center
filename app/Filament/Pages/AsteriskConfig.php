@@ -19,6 +19,13 @@ class AsteriskConfig extends Page
     public $extensionsConfig;
     public $pjsipConfig;
     
+    // Asterisk Stats
+    public $asteriskUptime = 'N/A';
+    public $activeChannels = 0;
+    public $sipPeers = 0;
+    public $pjsipEndpoints = 0;
+    public $isAsteriskRunning = false;
+    
     protected $sipPath = '/etc/asterisk/sip.conf';
     protected $extensionsPath = '/etc/asterisk/extensions.conf';
     protected $pjsipPath = '/etc/asterisk/pjsip.conf';
@@ -26,6 +33,44 @@ class AsteriskConfig extends Page
     public function mount()
     {
         $this->loadConfigs();
+        $this->fetchAsteriskStats();
+    }
+
+    public function fetchAsteriskStats()
+    {
+        try {
+            // Check if Asterisk is running
+            $status = shell_exec('pgrep asterisk');
+            $this->isAsteriskRunning = !empty($status);
+
+            if ($this->isAsteriskRunning) {
+                // Active Channels
+                $channels = shell_exec("sudo asterisk -rx \"core show channels count\" | grep \"active channel\" | cut -d' ' -f1");
+                $this->activeChannels = trim($channels) ?: 0;
+
+                // Uptime
+                $uptime = shell_exec("sudo asterisk -rx \"core show uptime seconds\" | grep \"System uptime\" | cut -d':' -f2");
+                $this->asteriskUptime = $this->formatUptime(trim($uptime));
+
+                // SIP Peers
+                $sip = shell_exec("sudo asterisk -rx \"sip show peers\" | grep \"sip peers\" | cut -d' ' -f1");
+                $this->sipPeers = trim($sip) ?: 0;
+
+                // PJSIP Endpoints
+                $pjsip = shell_exec("sudo asterisk -rx \"pjsip show endpoints\" | grep \"Objects found\" | cut -d':' -f2");
+                $this->pjsipEndpoints = trim($pjsip) ?: 0;
+            }
+        } catch (\Exception $e) {
+            // Fallback for local development or permission issues
+        }
+    }
+
+    protected function formatUptime($seconds)
+    {
+        if (!$seconds || !is_numeric($seconds)) return 'N/A';
+        $dtF = new \DateTime('@0');
+        $dtT = new \DateTime("@$seconds");
+        return $dtF->diff($dtT)->format('%a d, %h h, %i m');
     }
 
     public function loadConfigs()
