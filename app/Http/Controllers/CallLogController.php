@@ -319,13 +319,20 @@ class CallLogController extends Controller
 
         $cleanedNum = preg_replace('/\D/', '', $mobile);
 
-        // ১. কাস্টমারের নাম খোঁজো (ServiceRequest থেকে)
+        // ১. কাস্টমারের নাম ও জেন্ডার খোঁজো (ServiceRequest থেকে)
         $latestSr = \App\Models\ServiceRequest::where('mobile_number', $cleanedNum)
             ->whereNotNull('customer_name')
             ->latest()
             ->first();
 
         $name = $latestSr ? $latestSr->customer_name : 'সম্মানিত গ্রাহক';
+        $gender = $latestSr ? strtolower($latestSr->gender) : 'unknown';
+        
+        // সম্মানসূচক সম্বোধন (Honorific)
+        $honorific = 'স্যার'; // Default
+        if ($gender === 'female' || $gender === 'madam' || $gender === 'mrs' || $gender === 'miss') {
+            $honorific = 'ম্যাডাম';
+        }
 
         // ২. আগের হিস্ট্রি (সর্বশেষ ২টা interaction)
         $history = \App\Models\ServiceRequest::where('mobile_number', $cleanedNum)
@@ -344,6 +351,7 @@ class CallLogController extends Controller
             'status' => 'success',
             'data' => [
                 'name' => $name,
+                'honorific' => $honorific,
                 'last_interaction' => $history ?: 'নাই (নতুন গ্রাহক)',
             ]
         ]);

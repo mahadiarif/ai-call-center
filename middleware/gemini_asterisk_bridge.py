@@ -252,11 +252,12 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
             if profile_result and not isinstance(profile_result, Exception) and profile_result.get("status") == "success":
                 profile = profile_result.get("data", {})
                 name = profile.get("name", "সম্মানিত গ্রাহক")
+                honorific = profile.get("honorific", "স্যার/ম্যাডাম")
                 last_interaction = profile.get("last_interaction", "নাই")
-                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: {name}\nমোবাইল: {caller_number}\nসর্বশেষ যোগাযোগ: {last_interaction}\n[AI: কাস্টমারকে নাম ধরে সম্ভাষণ করো এবং সুন্দরভাবে কথা শুরু করো।]\n"
-                print(f"[PreWarm] Personalized for: {name}")
+                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: {name}\nসম্বোধন: {honorific}\nমোবাইল: {caller_number}\nসর্বশেষ যোগাযোগ: {last_interaction}\n[AI: কাস্টমারকে '{honorific}' বলে সম্বোধন করো।]\n"
+                print(f"[PreWarm] Personalized for: {name} ({honorific})")
             else:
-                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: নতুন গ্রাহক\nমোবাইল: {caller_number}\n"
+                customer_context = f"\n\n[CUSTOMER PROFILE]\nনাম: নতুন গ্রাহক\nসম্বোধন: স্যার/ম্যাডাম\nমোবাইল: {caller_number}\n"
 
             # Walton SR process
             walton_sr_context = ""
