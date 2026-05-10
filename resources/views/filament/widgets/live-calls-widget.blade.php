@@ -1,101 +1,116 @@
 <x-filament-widgets::widget>
     <x-filament::section>
         <div wire:poll.2000ms>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <span style="display:inline-block;width:12px;height:12px;border-radius:50%;
-                        background:{{ $activeCalls > 0 ? '#22c55e' : '#9ca3af' }};
-                        box-shadow:0 0 0 4px {{ $activeCalls > 0 ? 'rgba(34,197,94,0.25)' : 'rgba(156,163,175,0.2)' }};"></span>
-                    <strong style="font-size:1.1rem;">📞 Live Call Monitor</strong>
+            {{-- Header --}}
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <span class="relative flex h-3 w-3">
+                        @if($activeCalls > 0)
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-success-500"></span>
+                        @else
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-gray-400 dark:bg-gray-600"></span>
+                        @endif
+                    </span>
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white">📞 Live Call Monitor</h3>
                 </div>
-                <span style="font-size:0.75rem;color:#9ca3af;">🕐 {{ $currentTime }} (BD Time)</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400 font-mono"> BD Time: {{ $currentTime }}</span>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
-                <div style="text-align:center;padding:16px;border-radius:12px;
-                    border:2px solid {{ $activeCalls > 0 ? '#86efac' : '#e5e7eb' }};
-                    background:{{ $activeCalls > 0 ? '#f0fdf4' : '#f9fafb' }};">
-                    <div style="font-size:2.5rem;font-weight:900;color:{{ $activeCalls > 0 ? '#16a34a' : '#9ca3af' }};">{{ $activeCalls }}</div>
-                    <div style="font-size:0.75rem;margin-top:4px;color:{{ $activeCalls > 0 ? '#15803d' : '#6b7280' }};">🔴 Active Now</div>
+
+            {{-- Stats Cards --}}
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                {{-- Active Now --}}
+                <div class="p-4 rounded-xl border-2 transition-all {{ $activeCalls > 0 ? 'border-success-500 bg-success-50 dark:bg-success-950/20' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50' }}">
+                    <div class="text-3xl font-black {{ $activeCalls > 0 ? 'text-success-600 dark:text-success-400' : 'text-gray-400 dark:text-gray-600' }}">
+                        {{ $activeCalls }}
+                    </div>
+                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 {{ $activeCalls > 0 ? 'text-success-700 dark:text-success-500' : 'text-gray-500' }}">
+                        🔴 Active Now
+                    </div>
                 </div>
-                <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #93c5fd;background:#eff6ff;">
-                    <div style="font-size:2.5rem;font-weight:900;color:#1d4ed8;">{{ $lastHour }}</div>
-                    <div style="font-size:0.75rem;color:#1e40af;margin-top:4px;">⏱ Last 1 Hour</div>
+
+                {{-- Last 1 Hour --}}
+                <div class="p-4 rounded-xl border-2 border-primary-200 dark:border-primary-900 bg-primary-50 dark:bg-primary-950/20">
+                    <div class="text-3xl font-black text-primary-600 dark:text-primary-400">{{ $lastHour }}</div>
+                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-primary-700 dark:text-primary-500">⏱ Last 1 Hour</div>
                 </div>
-                <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #c4b5fd;background:#faf5ff;">
-                    <div style="font-size:2.5rem;font-weight:900;color:#7c3aed;">{{ $todayTotal }}</div>
-                    <div style="font-size:0.75rem;color:#6d28d9;margin-top:4px;">📅 Today's Total</div>
+
+                {{-- Today Total --}}
+                <div class="p-4 rounded-xl border-2 border-info-200 dark:border-info-900 bg-info-50 dark:bg-info-950/20">
+                    <div class="text-3xl font-black text-info-600 dark:text-info-400">{{ $todayTotal }}</div>
+                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-info-700 dark:text-info-500">📅 Today Total</div>
                 </div>
-                <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #fbbf24;background:#fffbeb;">
-                    <div style="font-size:2.5rem;font-weight:900;color:#d97706;">{{ number_format($avgLatency / 1000, 2) }}s</div>
-                    <div style="font-size:0.75rem;color:#b45309;margin-top:4px;">⚡ এআই Latency (Avg)</div>
+
+                {{-- AI Latency --}}
+                <div class="p-4 rounded-xl border-2 border-warning-200 dark:border-warning-900 bg-warning-50 dark:bg-warning-950/20">
+                    <div class="text-3xl font-black text-warning-600 dark:text-warning-400">{{ number_format($avgLatency / 1000, 2) }}s</div>
+                    <div class="text-[10px] uppercase tracking-wider font-bold mt-1 text-warning-700 dark:text-warning-500">⚡ AI Latency (Avg)</div>
                 </div>
             </div>
+
+            {{-- Recent Calls Table --}}
             @if($recentCalls && $recentCalls->count() > 0)
-            <p style="font-size:0.85rem;font-weight:600;color:#374151;margin-bottom:8px;">🕑 সাম্প্রতিক কলসমূহ</p>
-            <div style="overflow-x:auto;border-radius:8px;border:1px solid #e5e7eb;">
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-                    <thead>
-                        <tr style="background:#f9fafb;">
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Customer</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Mobile</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">IVR Service</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Status</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Time</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($recentCalls as $i => $call)
-                        @php
-                            $isLive     = $call->status === 'Incoming' && $call->created_at->diffInMinutes(now()) < 10;
-                            $isRecent   = $call->created_at->diffInMinutes(now()) < 5;
-                            $rowBg      = $isLive ? '#f0fdf4' : ($i % 2 === 0 ? '#ffffff' : '#f9fafb');
-                            $statusStyle = match($call->status) {
-                                'Incoming'   => 'background:#bbf7d0;color:#14532d;',
-                                'Pending'    => 'background:#fef9c3;color:#854d0e;',
-                                'Resolved'   => 'background:#dcfce7;color:#166534;',
-                                'Rejected'   => 'background:#fee2e2;color:#991b1b;',
-                                'Drop Call'  => 'background:#e0e7ff;color:#3730a3;',
-                                default      => 'background:#f3f4f6;color:#374151;',
-                            };
-                            // Call duration — শুধু Incoming এ live count, বাকিতে fixed
-                            $durationSec = $call->status === 'Incoming'
-                                ? $call->created_at->diffInSeconds(now())
-                                : $call->created_at->diffInSeconds($call->updated_at ?? $call->created_at);
-                            $durationStr = $durationSec >= 60
-                                ? floor($durationSec/60) . 'm ' . ($durationSec%60) . 's'
-                                : $durationSec . 's';
-                        @endphp
-                        <tr style="background:{{ $rowBg }};border-top:1px solid #f3f4f6;">
-                            <td style="padding:8px 12px;">
-                                @if($isLive)
-                                    <span style="display:inline-block;width:8px;height:8px;background:#22c55e;border-radius:50%;margin-right:6px;"></span>
-                                @elseif($isRecent)
-                                    <span style="display:inline-block;width:8px;height:8px;background:#60a5fa;border-radius:50%;margin-right:6px;"></span>
-                                @endif
-                                {{ $call->customer_name ?? 'অজানা' }}
-                            </td>
-                            <td style="padding:8px 12px;color:#6b7280;">{{ $call->mobile_number ?? 'N/A' }}</td>
-                            <td style="padding:8px 12px;color:#6b7280;">{{ $call->ivrService?->service_name ?? 'সাধারণ' }}</td>
-                            <td style="padding:8px 12px;">
-                                <span style="padding:2px 8px;border-radius:9999px;font-size:0.75rem;font-weight:600;{{ $statusStyle }}">{{ $call->status }}</span>
-                            </td>
-                            <td style="padding:8px 12px;font-size:0.75rem;color:#9ca3af;">
-                                @if($isLive)
-                                    <span style="color:#16a34a;font-weight:600;">⏱ {{ $durationStr }}</span>
-                                @else
-                                    {{ $durationStr }} | {{ $call->created_at->diffForHumans() }}
-                                @endif
-                            </td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
+                <div class="flex items-center gap-2 mb-3">
+                    <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">🕑 Recent Activity</p>
+                </div>
+                <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50 dark:bg-gray-800/50">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Customer</th>
+                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">IVR Service</th>
+                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-center">Status</th>
+                                <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-right">Duration / Time</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                            @foreach($recentCalls as $call)
+                                @php
+                                    $isLive = $call->status === 'Incoming' && $call->created_at->diffInMinutes(now()) < 15;
+                                    $durationSec = $isLive ? $call->created_at->diffInSeconds(now()) : $call->created_at->diffInSeconds($call->updated_at);
+                                    $durationStr = $durationSec >= 60 ? floor($durationSec/60) . 'm ' . ($durationSec%60) . 's' : $durationSec . 's';
+                                @endphp
+                                <tr class="{{ $isLive ? 'bg-success-50/50 dark:bg-success-950/10' : 'bg-white dark:bg-gray-900' }}">
+                                    <td class="px-4 py-3">
+                                        <div class="flex flex-col">
+                                            <span class="font-medium text-gray-900 dark:text-white">{{ $call->customer_name ?: 'Unknown' }}</span>
+                                            <span class="text-xs text-gray-500">{{ $call->mobile_number }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                        {{ $call->ivrService?->service_name ?: 'General' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        @php
+                                            $badgeColor = match($call->status) {
+                                                'Incoming' => 'success',
+                                                'Resolved' => 'info',
+                                                'Drop Call' => 'danger',
+                                                default => 'gray'
+                                            };
+                                        @endphp
+                                        <x-filament::badge :color="$badgeColor">
+                                            {{ $call->status }}
+                                        </x-filament::badge>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex flex-col items-end">
+                                            <span class="font-mono font-bold {{ $isLive ? 'text-success-600 animate-pulse' : 'text-gray-600 dark:text-gray-400' }}">
+                                                {{ $durationStr }}
+                                            </span>
+                                            <span class="text-[10px] text-gray-400 italic">{{ $call->created_at->diffForHumans() }}</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
             @else
-            <div style="text-align:center;padding:24px;color:#9ca3af;">
-                <div style="font-size:2.5rem;margin-bottom:8px;">📵</div>
-                <p>এখন কোনো কল নেই</p>
-            </div>
+                <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-600">
+                    <x-heroicon-o-phone-x-mark class="w-12 h-12 mb-2 opacity-20" />
+                    <p class="text-sm">No live calls at the moment</p>
+                </div>
             @endif
         </div>
     </x-filament::section>
