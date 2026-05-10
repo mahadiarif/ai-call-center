@@ -13,6 +13,15 @@ class DemoDataSeeder extends Seeder
 {
     public function run(): void
     {
+        // ০. Admin User (লগইন করার জন্য)
+        \App\Models\User::updateOrCreate(
+            ['email' => 'admin@admin.com'],
+            [
+                'name' => 'Administrator',
+                'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            ]
+        );
+
         // ১. AI Performance Logs (Latencies)
         $logs = [];
         if (Schema::hasTable('ai_performance_logs')) {
