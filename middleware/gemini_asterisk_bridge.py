@@ -16,6 +16,7 @@ Usage:
     python gemini_asterisk_bridge.py
 """
 
+import os
 import asyncio
 import json
 import base64
@@ -35,7 +36,8 @@ from urllib.parse import urlencode
 AST_PORT   = 9092
 PROJECT_ID = "ai-calls-center"
 LOCATION   = "us-central1"
-KEY_PATH   = "/root/vertex_bridge/service-account.json"
+# Use relative path for portability (same folder as script)
+KEY_PATH = os.path.join(os.path.dirname(__file__), "service-account.json")
 
 # ── Model ────────────────────────────────────────────────────────────────────
 #  gemini-live-2.5-flash-native-audio
@@ -59,10 +61,26 @@ FALLBACK_SYSTEM_PROMPT = (
     "সংক্ষিপ্ত ও স্পষ্টভাবে কথা বলো।"
 )
 
+# ── ★ STRONG LANGUAGE LOCK — prevent Hindi mis-transcription ★ ────────────
+LANGUAGE_LOCK = (
+    "🔒 ABSOLUTE LANGUAGE RULE — READ FIRST 🔒\n"
+    "1. The customer is a NATIVE BANGLADESHI BENGALI speaker. They speak ONLY Bengali (বাংলা).\n"
+    "2. Customer NEVER speaks Hindi, Urdu, Telugu, Korean, or any other language.\n"
+    "3. If audio sounds Hindi-like (e.g. 'hamra', 'mera', 'kahan', 'haan'), it is ACTUALLY Bengali — interpret as Bengali.\n"
+    "   • 'hamra' = 'আমার' (amar)\n"
+    "   • 'mera' = 'আমার' (amar)\n"
+    "   • 'kahan' = 'কোথায়' (kothay)\n"
+    "   • 'haan' = 'হ্যাঁ' (hyaa)\n"
+    "4. ALWAYS respond in Bengali (বাংলা script).\n"
+    "5. ALWAYS transcribe customer audio as Bengali — NEVER as Hindi/Romanized Hindi/Devanagari script.\n"
+    "6. If you cannot understand a word, ask the customer to repeat in Bengali — do NOT guess Hindi.\n\n"
+    "═══════════════════════════════════════════════\n\n"
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  LARAVEL INTEGRATION  —  call log + data save (same as mic-test.blade.php)
 # ══════════════════════════════════════════════════════════════════════════════
-LARAVEL_BASE_URL = "http://127.0.0.1"   # Laravel app URL (same server)
+LARAVEL_BASE_URL = "http://127.0.0.1:8001"   # Laravel app URL (same server)
 DEFAULT_IVR_KEY  = "1"                  # IVR key_press value to use for Asterisk calls
 
 # AudioSocket packet types
@@ -125,14 +143,14 @@ def _post_json_sync(url: str, data: dict) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
     except Exception as e:
         print(f"[HTTP] Error → {url}: {e}")
         return {}
 
 
-def _post_form_sync(url: str, data: dict, timeout: int = 10):
+def _post_form_sync(url: str, data: dict, timeout: int = 5):
     """Blocking HTTP POST x-www-form-urlencoded — for Walton API."""
     body = urlencode(data).encode()
     req  = urllib.request.Request(
@@ -159,7 +177,7 @@ def _get_json_sync(url: str) -> dict:
     """Blocking HTTP GET to Laravel API — call via run_in_executor only."""
     req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read())
     except Exception as e:
         print(f"[HTTP] Error → {url}: {e}")
@@ -224,6 +242,173 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     audio_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
     stop_event = asyncio.Event()
 
+    # ── Gemini Pre-warm tracking ──────────────────────────────────────────────
+    vertex_ws      = None
+    vertex_ready   = asyncio.Event()
+    prewarm_failed = False
+    final_prompt   = ""
+    final_voice    = "Charon"
+
+    # ── Walton SR tracking ────────────────────────────────────────────────────
+    existing_open_walton_sr  = None
+    existing_open_sr_product = None
+    existing_open_sr_status  = None
+    OPEN_STATUSES = {"pending", "in process", "in-process", "processing", "escalation requested", "new"}
+
+    async def prewarm_gemini():
+        nonlocal vertex_ws, prewarm_failed, final_prompt, final_voice
+        nonlocal existing_open_walton_sr, existing_open_sr_product, existing_open_sr_status
+
+        try:
+            await asyncio.wait_for(caller_resolved.wait(), timeout=2.0)
+            print(f"[PreWarm] Caller={caller_number} | Firing parallel tasks...")
+            t_start = time.time()
+
+            if call_type == "outbound_survey" and survey_id:
+                ivr_coro = get_json(
+                    f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
+                    f"?call_type=outbound_survey&survey_id={survey_id}&caller_number={caller_number or ''}"
+                )
+            else:
+                ivr_coro = get_json(
+                    f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
+                    f"?ivr_key={ivr_key}&caller_number={caller_number or ''}"
+                )
+
+            walton_coro = post_form(
+                "http://192.168.117.135:8080/webApiProduction/local_116_228/webCrmSrSearch.php",
+                {
+                    "CUSTOMER_MOBILE": (caller_number or "").lstrip("+"),
+                    "username": "walton",
+                    "key":      "xHj0LoH!9%4VVWYWQilrti",
+                },
+                timeout=3
+            ) if (caller_number and call_type != "outbound_survey") else asyncio.sleep(0, result=None)
+
+            # সব parallel
+            t0 = time.time()
+            ivr_result, walton_result, wss_url = await asyncio.gather(
+                ivr_coro,
+                walton_coro,
+                get_vertex_wss_url(),
+                return_exceptions=True
+            )
+            print(f"[PreWarm] Parallel fetch: {(time.time()-t0)*1000:.0f}ms")
+
+            # IVR process
+            if isinstance(ivr_result, Exception) or not ivr_result or not ivr_result.get("prompt"):
+                print(f"[PreWarm] IVR failed — fallback")
+                final_prompt = FALLBACK_SYSTEM_PROMPT
+                final_voice  = "Charon"
+            else:
+                final_prompt = ivr_result["prompt"]
+                final_voice  = ivr_result.get("voice_gender", "Charon")
+                print(f"[PreWarm] IVR ready ({len(final_prompt)}chars) voice={final_voice}")
+
+            # Walton SR process
+            walton_sr_context = ""
+            if walton_result and not isinstance(walton_result, Exception):
+                sr_list = (
+                    walton_result if isinstance(walton_result, list)
+                    else ([walton_result] if isinstance(walton_result, dict)
+                          and walton_result.get("SERVICE_NO") else [])
+                )
+                if sr_list:
+                    latest    = sr_list[0]
+                    sr_no     = latest.get("SERVICE_NO", "—")
+                    sr_status = latest.get("SERVICE_STATUS", "—")
+                    product   = latest.get("PRODUCT", latest.get("ITEM_NAME", "—"))
+                    problem   = latest.get("PROBLEMS", "—")
+                    created   = latest.get("CREATED_DATE", "—")
+                    is_open   = sr_status.lower().strip() in OPEN_STATUSES
+
+                    if is_open:
+                        existing_open_walton_sr  = sr_no
+                        existing_open_sr_product = product
+                        existing_open_sr_status  = sr_status
+                        walton_sr_context = (
+                            f"\n\n[WALTON SR — OPEN: {caller_number}]\n"
+                            f"SR: {sr_no} | পণ্য: {product} | সমস্যা: {problem}\n"
+                            f"তারিখ: {created} | Status: {sr_status}\n"
+                            f"[AI: কথা শুরুতেই বলো SR {sr_no} চলমান। "
+                            f"একই সমস্যা হলে নতুন SR নয়।]\n"
+                        )
+                        print(f"[PreWarm] OPEN SR: {sr_no} ({sr_status})")
+                    else:
+                        walton_sr_context = (
+                            f"\n\n[WALTON SR HISTORY: {caller_number}]\n"
+                            f"Last SR: {sr_no} (CLOSED) | পণ্য: {product}\n"
+                            f"[AI: নতুন সমস্যায় নতুন SR করা যাবে।]\n"
+                        )
+                        print(f"[PreWarm] SR {sr_no} CLOSED")
+            elif isinstance(walton_result, Exception):
+                print(f"[PreWarm] Walton failed: {walton_result}")
+
+            # Vertex connect
+            if isinstance(wss_url, Exception):
+                raise wss_url
+
+            t1 = time.time()
+            vertex_ws = await websockets.connect(
+                wss_url,
+                additional_headers={"Content-Type": "application/json"},
+                ping_interval=20,
+                ping_timeout=20,
+            )
+            print(f"[PreWarm] Vertex connected: {(time.time()-t1)*1000:.0f}ms")
+
+            # Setup message
+            full_prompt = LANGUAGE_LOCK + final_prompt + walton_sr_context
+            await vertex_ws.send(json.dumps({
+                "setup": {
+                    "model": MODEL,
+                    "generationConfig": {
+                        "responseModalities": ["AUDIO"],
+                        "speechConfig": {
+                            "voiceConfig": {
+                                "prebuiltVoiceConfig": {"voiceName": final_voice}
+                            }
+                        }
+                    },
+                    "inputAudioTranscription":  {},
+                    "outputAudioTranscription": {},
+                    "systemInstruction": {
+                        "parts": [{"text": full_prompt}]
+                    },
+                }
+            }))
+
+            # setupComplete
+            t2 = time.time()
+            raw  = await asyncio.wait_for(vertex_ws.recv(), timeout=10.0)
+            resp = json.loads(raw)
+            if "setupComplete" in resp:
+                print(f"[PreWarm] setupComplete: {(time.time()-t2)*1000:.0f}ms")
+
+            # Greeting trigger
+            await vertex_ws.send(json.dumps({
+                "clientContent": {
+                    "turns": [{
+                        "role":  "user",
+                        "parts": [{"text": "Start the conversation with your greeting message now."}]
+                    }],
+                    "turnComplete": True
+                }
+            }))
+
+            total = (time.time() - t_start) * 1000
+            print(f"[PreWarm] 🚀 FULLY READY in {total:.0f}ms!")
+            vertex_ready.set()
+
+        except asyncio.TimeoutError:
+            print("[PreWarm] ❌ Timeout")
+            prewarm_failed = True
+            vertex_ready.set()
+        except Exception as e:
+            print(f"[PreWarm] ❌ Error: {e}")
+            prewarm_failed = True
+            vertex_ready.set()
+
     async def drain_asterisk():
         """
         Read ALL packets from Asterisk continuously and put audio into queue.
@@ -254,8 +439,8 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                         survey_id     = cr.get("survey_id")
                         print(f"[DB] Caller resolved: {caller_number}, IVR key: {ivr_key}, type: {call_type}")
                     else:
-                        # Fallback: retry once after 300ms (handles slight timing issues)
-                        await asyncio.sleep(0.3)
+                        # Fallback: retry once after 100ms (handles slight timing issues)
+                        await asyncio.sleep(0.1)
                         cr2 = await get_json(
                             f"{LARAVEL_BASE_URL}/api/bridge/caller-by-uuid?uuid={call_uuid}"
                         )
@@ -328,205 +513,15 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     # Start draining Asterisk immediately — before connecting to Vertex AI
     drain_task = asyncio.create_task(drain_asterisk())
 
-    # ── Wait for caller number to be resolved (max 3s) before fetching IVR ───
-    # drain_asterisk() sets caller_resolved once UUID lookup completes.
-    # Without this wait, IVR fetch uses caller_number=None (race condition).
-    try:
-        await asyncio.wait_for(caller_resolved.wait(), timeout=3.0)
-    except asyncio.TimeoutError:
-        print("[DB] Caller resolve timeout — proceeding without number")
+    # ── Start Pre-warm process ───────────────────────────────────────────────
+    prewarm_task = asyncio.create_task(prewarm_gemini())
 
-    # ── Fetch dynamic IVR prompt + voice from Laravel ─────────────────────────
-    if call_type == "outbound_survey" and survey_id:
-        ivr_setup = await get_json(
-            f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
-            f"?call_type=outbound_survey&survey_id={survey_id}&caller_number={caller_number or ''}"
-        )
-        print(f"[DB] Outbound survey setup fetch — survey_id={survey_id}")
-    else:
-        ivr_setup = await get_json(
-            f"{LARAVEL_BASE_URL}/api/bridge/get-ivr-setup"
-            f"?ivr_key={ivr_key}&caller_number={caller_number or ''}"
-        )
-    if ivr_setup.get("status") == "error" or not ivr_setup.get("prompt"):
-        print("[DB] Could not fetch IVR prompt — using fallback prompt.")
-        system_prompt = FALLBACK_SYSTEM_PROMPT
-        voice_name    = "Charon"
-    else:
-        system_prompt = ivr_setup["prompt"]
-        voice_name    = ivr_setup.get("voice_gender", "Charon")
-        print(f"[DB] IVR prompt fetched ({len(system_prompt)} chars), voice={voice_name}")
-
-    # ── ★ Walton SR Lookup — caller এর পুরানো SR আছে কিনা দেখো ★ ─────────────
-    # Outbound survey call এ এই lookup বাদ দাও — survey record এ ইতিমধ্যে
-    # সঠিক SR data আছে (prompt এ inject হয়েছে)। Walton API lookup করলে
-    # পুরনো inbound SR inject হয়ে prompt dirty হয়।
-    walton_sr_context = ""
-    # existing open SR — pre-register এ পাঠাবো যাতে duplicate না হয়
-    existing_open_walton_sr  = None   # e.g. "09052600002"
-    existing_open_sr_product = None   # e.g. "REFRIGERATOR"
-    existing_open_sr_status  = None   # e.g. "Pending"
-
-    OPEN_STATUSES = {"pending", "in process", "in-process", "processing", "escalation requested", "new"}
-
-    if caller_number and call_type != "outbound_survey":
-        try:
-            walton_resp = await post_form(
-                "http://192.168.117.135:8080/webApiProduction/local_116_228/webCrmSrSearch.php",
-                {
-                    "CUSTOMER_MOBILE": caller_number.lstrip("+"),
-                    "username": "walton",
-                    "key": "xHj0LoH!9%4VVWYWQilrti",
-                },
-                timeout=5
-            )
-            # Normalize to list
-            sr_list = []
-            if isinstance(walton_resp, list):
-                sr_list = walton_resp
-            elif isinstance(walton_resp, dict) and walton_resp.get("SERVICE_NO"):
-                sr_list = [walton_resp]
-
-            if sr_list:
-                latest    = sr_list[0]
-                sr_no     = latest.get("SERVICE_NO", "—")
-                sr_status = latest.get("SERVICE_STATUS", "—")
-                product   = latest.get("PRODUCT", latest.get("ITEM_NAME", "—"))
-                problem   = latest.get("PROBLEMS", "—")
-                created   = latest.get("CREATED_DATE", "—")
-
-                # Check if latest SR is still open (not resolved/closed)
-                is_open = sr_status.lower().strip() in OPEN_STATUSES
-
-                if is_open:
-                    existing_open_walton_sr  = sr_no
-                    existing_open_sr_product = product
-                    existing_open_sr_status  = sr_status
-                    walton_sr_context = (
-                        f"\n\n[WALTON SR — OPEN TICKET FOUND FOR CALLER: {caller_number}]\n"
-                        f"⚠️ এই কাস্টমারের একটি চলমান SR আছে:\n"
-                        f"  SR নম্বর : {sr_no}\n"
-                        f"  পণ্য     : {product}\n"
-                        f"  সমস্যা   : {problem}\n"
-                        f"  তারিখ    : {created}\n"
-                        f"  Status   : {sr_status}\n\n"
-                        f"🔴 AI নির্দেশনা:\n"
-                        f"  1. কাস্টমার SR IVR তে এলে আগেই বলো: 'স্যার, আপনার {sr_no} নম্বরে একটি সার্ভিস রিকোয়েস্ট চলমান আছে।'\n"
-                        f"  2. জিজ্ঞেস করো: 'এটা কি সেই একই সমস্যার বিষয়ে, নাকি নতুন কোনো সমস্যা?'\n"
-                        f"  3. একই সমস্যা হলে → নতুন SR করবে না, আমাদের Laravel-কে জানাবে existing SR update করতে।\n"
-                        f"  4. সম্পূর্ণ নতুন পণ্য বা নতুন সমস্যা হলেই শুধু নতুন SR করবে।\n"
-                        f"  5. কাস্টমার SR নম্বর জানতে চাইলে বলো: '{sr_no}'\n"
-                    )
-                    print(f"[Walton] ⚠️ OPEN SR found: {sr_no} ({sr_status}) for {caller_number}")
-                else:
-                    # SR resolved/closed — new SR allowed
-                    walton_sr_context = (
-                        f"\n\n[WALTON SR HISTORY — CALLER: {caller_number}]\n"
-                        f"সর্বশেষ SR নম্বর: {sr_no} (Status: {sr_status} — বন্ধ)\n"
-                        f"পণ্য: {product} | সমস্যা: {problem}\n"
-                        f"মোট SR: {len(sr_list)} টি\n"
-                        f"[AI: আগের SR বন্ধ হয়েছে — নতুন সমস্যায় নতুন SR করা যাবে।]\n"
-                    )
-                    print(f"[Walton] ✅ SR {sr_no} is CLOSED ({sr_status}) — new SR allowed for {caller_number}")
-            else:
-                print(f"[Walton] ℹ️ No previous SR found for {caller_number}")
-        except Exception as e:
-            print(f"[Walton] ⚠️ SR lookup failed (VPN not connected?): {e}")
-
-    # Walton SR context টা system_prompt এ inject করো
-    if walton_sr_context:
-        system_prompt = system_prompt + walton_sr_context
-
-    # ── ★ STRONG LANGUAGE LOCK — prevent Hindi mis-transcription ★ ────────────
-    # Gemini Live ASR sometimes wrongly detects Bangladeshi Bengali as Hindi
-    # (e.g. "amar" → "hamra"). Prepend a hard language directive.
-    LANGUAGE_LOCK = (
-        "🔒 ABSOLUTE LANGUAGE RULE — READ FIRST 🔒\n"
-        "1. The customer is a NATIVE BANGLADESHI BENGALI speaker. They speak ONLY Bengali (বাংলা).\n"
-        "2. Customer NEVER speaks Hindi, Urdu, Telugu, Korean, or any other language.\n"
-        "3. If audio sounds Hindi-like (e.g. 'hamra', 'mera', 'kahan', 'haan'), it is ACTUALLY Bengali — interpret as Bengali.\n"
-        "   • 'hamra' = 'আমার' (amar)\n"
-        "   • 'mera' = 'আমার' (amar)\n"
-        "   • 'kahan' = 'কোথায়' (kothay)\n"
-        "   • 'haan' = 'হ্যাঁ' (hyaa)\n"
-        "4. ALWAYS respond in Bengali (বাংলা script).\n"
-        "5. ALWAYS transcribe customer audio as Bengali — NEVER as Hindi/Romanized Hindi/Devanagari script.\n"
-        "6. If you cannot understand a word, ask the customer to repeat in Bengali — do NOT guess Hindi.\n\n"
-        "═══════════════════════════════════════════════\n\n"
-    )
-    system_prompt = LANGUAGE_LOCK + system_prompt
-    # ── Connect to Vertex AI ──────────────────────────────────────────────────
-    try:
-        wss_url   = await get_vertex_wss_url()   # runs in thread pool
-        vertex_ws = await websockets.connect(
-            wss_url,
-            additional_headers={"Content-Type": "application/json"},
-            ping_interval=20,
-            ping_timeout=20,
-        )
-    except Exception as e:
-        print(f"[Critical] Cannot connect to Vertex AI: {e}")
-        stop_event.set()
+    # ── Wait for Gemini to be ready (or fail) ─────────────────────────────────
+    await vertex_ready.wait()
+    if prewarm_failed or not vertex_ws:
+        print("[System] Gemini connection failed — closing call")
         writer.close()
-        await drain_task
         return
-
-    print("[Gemini] Connected to Vertex AI WebSocket")
-
-    # ── Send setup message (camelCase JSON as Vertex AI proto requires) ────────
-    setup_msg = {
-        "setup": {
-            "model": MODEL,
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": voice_name
-                        }
-                    }
-                },
-            },
-            # ━━ Enable transcription — mic-test.blade.php এর মতো data পাবো ━━
-            # Note: Vertex AI Gemini Live does NOT support languageCode in setup
-            # Bengali filter is applied in Python after receiving transcript (see below)
-            "inputAudioTranscription":  {},   # customer এর কথা text এ → customer_buf
-            "outputAudioTranscription": {},   # AI এর কথা text এ → ai_text_log
-            "systemInstruction": {
-                "parts": [{"text": system_prompt}]
-            },
-        }
-    }
-    await vertex_ws.send(json.dumps(setup_msg))
-    print("[Gemini] Setup message sent")
-
-    # ── Wait for setupComplete ────────────────────────────────────────────────
-    try:
-        raw  = await asyncio.wait_for(vertex_ws.recv(), timeout=15.0)
-        resp = json.loads(raw)
-        if "setupComplete" in resp:
-            print("[Gemini] Setup Complete. Ready for audio.")
-        else:
-            print(f"[Gemini] Unexpected setup response: {resp}")
-    except asyncio.TimeoutError:
-        print("[Gemini] Timeout waiting for setupComplete, continuing anyway...")
-
-    # ── Send greeting trigger ─────────────────────────────────────────────────
-    # Tells Gemini to speak first. Without this the native audio model waits
-    # for the caller to speak first → caller hears silence → hangs up.
-    try:
-        await vertex_ws.send(json.dumps({
-            "clientContent": {
-                "turns": [{
-                    "role": "user",
-                    "parts": [{"text": "Start the conversation with your greeting message now."}]
-                }],
-                "turnComplete": True
-            }
-        }))
-        print("[Gemini] Greeting trigger sent.")
-    except Exception as e:
-        print(f"[Gemini] Greeting trigger failed: {e}")
 
     # ── Bidirectional audio bridge ────────────────────────────────────────────
 
