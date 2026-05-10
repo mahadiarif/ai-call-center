@@ -24,7 +24,8 @@ use Filament\Actions\DeleteBulkAction;
 class ServiceRequestResource extends Resource
 {
     protected static ?string $model = ServiceRequest::class;
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static ?string $navigationGroup = '📞 Call Operations';
+    protected static ?int $navigationSort = 1;
     protected static ?string $navigationLabel = "Service Requests";
 
     public static function form(Schema $schema): Schema
@@ -48,7 +49,7 @@ class ServiceRequestResource extends Resource
 
             // ── QM Number (শুধু QM হলে) ──
             \Filament\Forms\Components\TextInput::make("qm_number")
-                ->label("QM নম্বর")
+                ->label("QM Number")
                 ->disabled()
                 ->helperText("Auto-generated")
                 ->visible(fn ($get) => $isQm($get)),
@@ -79,7 +80,7 @@ class ServiceRequestResource extends Resource
 
             // ── QM_PARTS — পার্টস fields ──
             \Filament\Forms\Components\TextInput::make("product_name")
-                ->label("পণ্যের নাম")
+                ->label("Product Name")
                 ->visible(fn ($get) => $get('ticket_type') === 'QM_PARTS'),
 
             // ── Comments (সব type-এ — QM-এ বিস্তারিত থাকে) ──
@@ -97,22 +98,17 @@ class ServiceRequestResource extends Resource
 
                     if ($type === 'QM_COMPLAINT') {
                         $html = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-top:4px;">';
-                        $html .= '<div style="font-weight:700;color:#dc2626;margin-bottom:10px;">🔴 অভিযোগের বিস্তারিত</div>';
-                        if (!empty($data['complaint_category'])) {
-                            $cat = match($data['complaint_category']) {
-                                'service_expert'  => 'সার্ভিস এক্সপার্ট', 'showroom' => 'শো-রুম / প্লাজা',
-                                'product_quality' => 'পণ্যের মান', 'billing' => 'বিল',
-                                default => $data['complaint_category'],
-                            };
-                            $html .= '<div style="margin-bottom:6px;"><strong>অভিযোগের ধরন:</strong> '  . e($cat) . '</div>';
+                        $html .= '<div style="font-weight:700;color:#dc2626;margin-bottom:10px;">🔴 Complaint Details</div>';
+                        if ($type === 'QM_COMPLAINT') {
+                            $html .= '<div style="margin-bottom:6px;"><strong>Complaint Type:</strong> '  . e($cat) . '</div>';
                         }
-                        if (!empty($data['sr_number']))        $html .= '<div style="margin-bottom:6px;"><strong>SR রেফারেন্স:</strong> ' . e($data['sr_number']) . '</div>';
-                        if (!empty($data['person_name']))      $html .= '<div style="margin-bottom:6px;"><strong>অভিযোগকৃত ব্যক্তি:</strong> ' . e($data['person_name']) . '</div>';
-                        if (!empty($data['showroom_address'])) $html .= '<div style="margin-bottom:6px;"><strong>শো-রুম:</strong> ' . e($data['showroom_address']) . '</div>';
-                        if (!empty($data['incident_date']))    $html .= '<div style="margin-bottom:6px;"><strong>ঘটনার তারিখ:</strong> ' . e($data['incident_date']) . '</div>';
+                        if (!empty($data['sr_number']))        $html .= '<div style="margin-bottom:6px;"><strong>SR Reference:</strong> ' . e($data['sr_number']) . '</div>';
+                        if (!empty($data['person_name']))      $html .= '<div style="margin-bottom:6px;"><strong>Complained Against:</strong> ' . e($data['person_name']) . '</div>';
+                        if (!empty($data['showroom_address'])) $html .= '<div style="margin-bottom:6px;"><strong>Showroom:</strong> ' . e($data['showroom_address']) . '</div>';
+                        if (!empty($data['incident_date']))    $html .= '<div style="margin-bottom:6px;"><strong>Incident Date:</strong> ' . e($data['incident_date']) . '</div>';
                         if (!empty($data['complaint_details'])) {
                             $html .= '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #fecaca;">';
-                            $html .= '<strong>🔴 সম্পূর্ণ অভিযোগ বিবরণ:</strong>';
+                            $html .= '<strong>🔴 Full Description:</strong>';
                             $html .= '<div style="margin-top:6px;white-space:pre-wrap;line-height:1.7;background:#fff5f5;padding:10px;border-radius:6px;">' . e($data['complaint_details']) . '</div>';
                             $html .= '</div>';
                         }
@@ -121,12 +117,12 @@ class ServiceRequestResource extends Resource
 
                     } elseif ($type === 'QM_PARTS') {
                         $html = '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin-top:4px;">';
-                        $html .= '<div style="font-weight:700;color:#1d4ed8;margin-bottom:10px;">🔧 পার্টস Query বিস্তারিত</div>';
-                        if (!empty($data['product_model']))           $html .= '<div style="margin-bottom:6px;"><strong>মডেল:</strong> ' . e($data['product_model']) . '</div>';
-                        if (!empty($data['preferred_service_point'])) $html .= '<div style="margin-bottom:6px;"><strong>পছন্দের সার্ভিস পয়েন্ট:</strong> ' . e($data['preferred_service_point']) . '</div>';
+                        $html .= '<div style="font-weight:700;color:#1d4ed8;margin-bottom:10px;">🔧 QM Parts Query</div>';
+                        if (!empty($data['product_model']))           $html .= '<div style="margin-bottom:6px;"><strong>Model:</strong> ' . e($data['product_model']) . '</div>';
+                        if (!empty($data['preferred_service_point'])) $html .= '<div style="margin-bottom:6px;"><strong>Service Point:</strong> ' . e($data['preferred_service_point']) . '</div>';
                         if (!empty($data['parts_name'])) {
                             $html .= '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #bfdbfe;">';
-                            $html .= '<strong>🔧 প্রয়োজনীয় পার্টসের বিবরণ:</strong>';
+                            $html .= '<strong>🔧 Required Parts:</strong>';
                             $html .= '<div style="margin-top:6px;white-space:pre-wrap;line-height:1.7;background:#f0f9ff;padding:10px;border-radius:6px;">' . e($data['parts_name']) . '</div>';
                             $html .= '</div>';
                         }
@@ -135,11 +131,11 @@ class ServiceRequestResource extends Resource
 
                     } elseif ($type === 'QM_BILL') {
                         $html = '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-top:4px;">';
-                        $html .= '<div style="font-weight:700;color:#92400e;margin-bottom:10px;">💰 বিল Query বিস্তারিত</div>';
-                        if (!empty($data['sr_number'])) $html .= '<div style="margin-bottom:6px;"><strong>SR রেফারেন্স:</strong> ' . e($data['sr_number']) . '</div>';
+                        $html .= '<div style="font-weight:700;color:#92400e;margin-bottom:10px;">💰 QM Bill Query</div>';
+                        if (!empty($data['sr_number'])) $html .= '<div style="margin-bottom:6px;"><strong>SR Reference:</strong> ' . e($data['sr_number']) . '</div>';
                         if (!empty($data['bill_query_details'])) {
                             $html .= '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #fde68a;">';
-                            $html .= '<strong>💰 বিল সংক্রান্ত প্রশ্ন / মন্তব্য:</strong>';
+                            $html .= '<strong>💰 Bill Query/Comments:</strong>';
                             $html .= '<div style="margin-top:6px;white-space:pre-wrap;line-height:1.7;background:#fffbeb;padding:10px;border-radius:6px;">' . e($data['bill_query_details']) . '</div>';
                             $html .= '</div>';
                         }
@@ -193,15 +189,15 @@ class ServiceRequestResource extends Resource
                     $totalCalls = $previous->count() + 1;
                     $html = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
                     $html .= '<div style="background:#1e40af;color:white;padding:8px 12px;font-weight:600;">';
-                    $html .= "🔁 Returning Customer — মোট {$totalCalls}টি call ({$previous->count()}টি আগের ticket)";
+                    $html .= "🔁 Returning Customer — Total {$totalCalls} calls ({$previous->count()} previous)";
                     $html .= '</div>';
 
                     $html .= '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
                     $html .= '<thead><tr style="background:#f1f5f9;">';
                     $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">#</th>';
-                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">তারিখ</th>';
-                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">পণ্য</th>';
-                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">সমস্যা</th>';
+                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Date</th>';
+                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Product</th>';
+                    $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Problem</th>';
                     $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Status</th>';
                     $html .= '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Action</th>';
                     $html .= '</tr></thead><tbody>';
@@ -275,6 +271,17 @@ class ServiceRequestResource extends Resource
                         "Rejected"  => "danger",
                         default     => "gray",
                     })->sortable(),
+                TextColumn::make("crm_sync_status")
+                    ->label("CRM Sync")
+                    ->badge()
+                    ->color(fn (string $state): string => match($state) {
+                        "synced"  => "success",
+                        "pending" => "warning",
+                        "failed"  => "danger",
+                        default   => "gray",
+                    })
+                    ->formatStateUsing(fn (string $state) => ucfirst($state))
+                    ->description(fn ($record) => $record->walton_sr_id),
                 TextColumn::make("created_at")->label("Time")->since()->sortable()
                     ->description(fn ($record) => $record->call_transcript ? "\ud83c\udfac Transcript" : null)
                     ->tooltip(fn ($record) => $record->created_at?->format("d M Y, h:i A")),

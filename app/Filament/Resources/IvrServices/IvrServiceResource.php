@@ -23,10 +23,10 @@ class IvrServiceResource extends Resource
     protected static ?string $model = IvrService::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
-    protected static ?string $navigationLabel = 'IVR Services';
+    protected static ?string $navigationGroup = '⚙️ AI Configuration';
+    protected static ?int $navigationSort = 1;
+    protected static ?string $navigationLabel = "AI Settings (IVR)";
     protected static ?string $modelLabel = 'IVR Service';
-    protected static string|\UnitEnum|null $navigationGroup = 'AI সেটিংস';
-    protected static ?int $navigationSort = 2;
 
     public static function form(Schema $schema): Schema
     {
@@ -47,9 +47,9 @@ class IvrServiceResource extends Resource
                     ])
                     ->helperText('Type select করলে নিচে সেই type এর প্রয়োজনীয় fields দেখাবে — Repeater এ manually add করুন')
                     ->live()
-                    ->afterStateUpdated(function ($state, \Filament\Schemas\Components\Utilities\Set $set) {
+                    ->afterStateUpdated(function ($state, $set) {
                         // Type অনুযায়ী system_prompt + required_fields preset করো
-                        $presets = \App\Filament\Resources\IvrServices\IvrServiceResource::getPresetFields($state);
+                        $presets = static::getPresetFields($state);
                         if (!empty($presets['fields'])) {
                             $set('required_fields', $presets['fields']);
                         }
@@ -65,7 +65,7 @@ class IvrServiceResource extends Resource
                 // Type অনুযায়ী hint দেখাবে
                 \Filament\Forms\Components\Placeholder::make('type_hint')
                     ->label('')
-                    ->content(fn (\Filament\Schemas\Components\Utilities\Get $get): string => match($get('service_type')) {
+                    ->content(fn ($get): string => match($get('service_type')) {
                         'sr'           => '✅ SR: customer_name, mobile_number, product_name, problem_description, district, address, barcode',
                         'qm_complaint' => '✅ QM Complaint: customer_name, mobile_number, complaint_category, person_name, showroom_address, incident_date, complaint_details',
                         'qm_parts'     => '✅ QM Parts: customer_name, mobile_number, product_name, model_number, parts_name, district',
@@ -307,10 +307,10 @@ class IvrServiceResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('key_press')->label('কী (Key)'),
-                TextColumn::make('service_name')->label('সার্ভিস'),
-                TextColumn::make('serial_order')->label('সিরিয়াল')->sortable(),
-                IconColumn::make('is_active')->boolean()->label('অ্যাকটিভ'),
+                TextColumn::make('key_press')->label('Key'),
+                TextColumn::make('service_name')->label('Service'),
+                TextColumn::make('serial_order')->label('Serial')->sortable(),
+                IconColumn::make('is_active')->boolean()->label('Active'),
             ])
             ->filters([])
             ->actions([])

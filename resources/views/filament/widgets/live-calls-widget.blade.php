@@ -10,20 +10,24 @@
                 </div>
                 <span style="font-size:0.75rem;color:#9ca3af;">🕐 {{ $currentTime }} (BD Time)</span>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
                 <div style="text-align:center;padding:16px;border-radius:12px;
                     border:2px solid {{ $activeCalls > 0 ? '#86efac' : '#e5e7eb' }};
                     background:{{ $activeCalls > 0 ? '#f0fdf4' : '#f9fafb' }};">
                     <div style="font-size:2.5rem;font-weight:900;color:{{ $activeCalls > 0 ? '#16a34a' : '#9ca3af' }};">{{ $activeCalls }}</div>
-                    <div style="font-size:0.75rem;margin-top:4px;color:{{ $activeCalls > 0 ? '#15803d' : '#6b7280' }};">🔴 এখন Live কল</div>
+                    <div style="font-size:0.75rem;margin-top:4px;color:{{ $activeCalls > 0 ? '#15803d' : '#6b7280' }};">🔴 Active Now</div>
                 </div>
                 <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #93c5fd;background:#eff6ff;">
                     <div style="font-size:2.5rem;font-weight:900;color:#1d4ed8;">{{ $lastHour }}</div>
-                    <div style="font-size:0.75rem;color:#1e40af;margin-top:4px;">⏱ শেষ ১ ঘণ্টা</div>
+                    <div style="font-size:0.75rem;color:#1e40af;margin-top:4px;">⏱ Last 1 Hour</div>
                 </div>
                 <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #c4b5fd;background:#faf5ff;">
                     <div style="font-size:2.5rem;font-weight:900;color:#7c3aed;">{{ $todayTotal }}</div>
-                    <div style="font-size:0.75rem;color:#6d28d9;margin-top:4px;">📅 আজকের মোট কল</div>
+                    <div style="font-size:0.75rem;color:#6d28d9;margin-top:4px;">📅 Today's Total</div>
+                </div>
+                <div style="text-align:center;padding:16px;border-radius:12px;border:2px solid #fbbf24;background:#fffbeb;">
+                    <div style="font-size:2.5rem;font-weight:900;color:#d97706;">{{ number_format($avgLatency / 1000, 2) }}s</div>
+                    <div style="font-size:0.75rem;color:#b45309;margin-top:4px;">⚡ এআই Latency (Avg)</div>
                 </div>
             </div>
             @if($recentCalls && $recentCalls->count() > 0)
@@ -32,11 +36,11 @@
                 <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
                     <thead>
                         <tr style="background:#f9fafb;">
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">কাস্টমার</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">মোবাইল</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">IVR সার্ভিস</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">স্ট্যাটাস</th>
-                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">সময়</th>
+                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Customer</th>
+                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Mobile</th>
+                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">IVR Service</th>
+                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Status</th>
+                            <th style="padding:8px 12px;text-align:left;font-size:0.75rem;color:#6b7280;">Time</th>
                         </tr>
                     </thead>
                     <tbody>

@@ -1,19 +1,7 @@
 """
-Asterisk AudioSocket <-> Vertex AI (Gemini Live 2.5 Native Audio) Bridge
-=========================================================================
-Receives raw PCM audio (8 kHz, 16-bit, mono) from Asterisk via AudioSocket TCP,
-resamples to 16 kHz, streams to Vertex AI BidiGenerateContent WebSocket, and
-returns the AI audio response (24 kHz → 8 kHz) back to Asterisk in real-time.
-
-Model  : gemini-live-2.5-flash-native-audio  (Vertex AI, v1beta1)
-Auth   : Service Account JSON key  (KEY_PATH below)
-Port   : 9092  (AudioSocket)
-
-Requirements:
-    pip install websockets numpy google-auth
-
-Usage:
-    python gemini_asterisk_bridge.py
+Asterisk AudioSocket <-> Vertex AI (Gemini Live 2.5) Bridge
+==========================================================
+Real-time bi-directional audio streaming between Asterisk and Gemini Live.
 """
 
 import os
@@ -36,73 +24,30 @@ from urllib.parse import urlencode
 AST_PORT   = 9092
 PROJECT_ID = "ai-calls-center"
 LOCATION   = "us-central1"
-# Use relative path for portability (same folder as script)
-KEY_PATH = os.path.join(os.path.dirname(__file__), "service-account.json")
+KEY_PATH   = os.path.join(os.path.dirname(__file__), "service-account.json")
+MODEL      = f"projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/gemini-live-2.5-flash-native-audio"
+API_VER    = "v1beta1"
 
-# ── Model ────────────────────────────────────────────────────────────────────
-#  gemini-live-2.5-flash-native-audio
-#    → Gemini 2.5 Native Audio model
-#    → Input:  16 000 Hz PCM-16 mono   (must specify rate in mime_type)
-#    → Output: 24 000 Hz PCM-16 mono   (always, regardless of request)
-#    → API:    v1beta1  (LlmBidiService)
-# ─────────────────────────────────────────────────────────────────────────────
-MODEL   = f"projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/gemini-live-2.5-flash-native-audio"
-API_VER = "v1beta1"
-
-# Vertex AI BidiGenerateContent WebSocket endpoint
 BASE_WSS = (
     f"wss://{LOCATION}-aiplatform.googleapis.com/ws/"
     f"google.cloud.aiplatform.{API_VER}.LlmBidiService/BidiGenerateContent"
 )
 
-# Fallback prompt — used ONLY if Laravel API unreachable
-FALLBACK_SYSTEM_PROMPT = (
-    "তুমি একজন প্রফেশনাল বাংলা কাস্টমার সাপোর্ট এজেন্ট। "
-    "সংক্ষিপ্ত ও স্পষ্টভাবে কথা বলো।"
-)
-
-# ── ★ STRONG LANGUAGE LOCK — prevent Hindi mis-transcription ★ ────────────
+# ── ★ LANGUAGE LOCK — prevent Hindi mis-transcription ★ ────────────
 LANGUAGE_LOCK = (
-    "🔒 ABSOLUTE LANGUAGE RULE — READ FIRST 🔒\n"
-    "1. The customer is a NATIVE BANGLADESHI BENGALI speaker. They speak ONLY Bengali (বাংলা).\n"
-    "2. Customer NEVER speaks Hindi, Urdu, Telugu, Korean, or any other language.\n"
-    "3. If audio sounds Hindi-like (e.g. 'hamra', 'mera', 'kahan', 'haan'), it is ACTUALLY Bengali — interpret as Bengali.\n"
-    "   • 'hamra' = 'আমার' (amar)\n"
-    "   • 'mera' = 'আমার' (amar)\n"
-    "   • 'kahan' = 'কোথায়' (kothay)\n"
-    "   • 'haan' = 'হ্যাঁ' (hyaa)\n"
-    "4. ALWAYS respond in Bengali (বাংলা script).\n"
-    "5. ALWAYS transcribe customer audio as Bengali — NEVER as Hindi/Romanized Hindi/Devanagari script.\n"
-    "6. If you cannot understand a word, ask the customer to repeat in Bengali — do NOT guess Hindi.\n\n"
-    "═══════════════════════════════════════════════\n\n"
+    "🔒 ABSOLUTE LANGUAGE RULE — কাস্টমার শুধুমাত্র বাংলা ভাষায় কথা বলবেন।\n"
+    "interpret all audio as Bengali. Always respond in Bengali (বাংলা script).\n\n"
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  LARAVEL INTEGRATION  —  call log + data save (same as mic-test.blade.php)
-# ══════════════════════════════════════════════════════════════════════════════
-LARAVEL_BASE_URL = "http://127.0.0.1:8001"   # Laravel app URL (same server)
-DEFAULT_IVR_KEY  = "1"                  # IVR key_press value to use for Asterisk calls
+LARAVEL_BASE_URL = "http://127.0.0.1:8001"
+DEFAULT_IVR_KEY  = "1"
 
-# AudioSocket packet types
-PKT_HANGUP  = 0x00
-PKT_UUID    = 0x01
-PKT_AUDIO   = 0x10
-
-# Asterisk slin frame size: 160 samples × 2 bytes = 320 bytes = 20ms @ 8 kHz
+# AudioSocket constants
+PKT_HANGUP, PKT_UUID, PKT_AUDIO = 0x00, 0x01, 0x10
 AST_FRAME_BYTES = 320
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  AUTH  –  Service Account JSON → short-lived access token
-#  NOTE: creds.refresh() is a blocking HTTP call — must run in thread executor
-#        so it does NOT block the asyncio event loop.
-# ══════════════════════════════════════════════════════════════════════════════
 def _get_vertex_wss_url_sync() -> str:
-    """Blocking version — call via run_in_executor only."""
-    creds = service_account.Credentials.from_service_account_file(
-        KEY_PATH,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
+    creds = service_account.Credentials.from_service_account_file(KEY_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"])
     creds.refresh(google.auth.transport.requests.Request())
     return f"{BASE_WSS}?{urlencode({'access_token': creds.token})}"
 
@@ -386,11 +331,15 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                 print(f"[PreWarm] setupComplete: {(time.time()-t2)*1000:.0f}ms")
 
             # Greeting trigger
+            greeting_text = ivr_result.get("greeting") if (ivr_result and isinstance(ivr_result, dict)) else None
+            if not greeting_text:
+                greeting_text = "Start the conversation with your greeting message now."
+            
             await vertex_ws.send(json.dumps({
                 "clientContent": {
                     "turns": [{
                         "role":  "user",
-                        "parts": [{"text": "Start the conversation with your greeting message now."}]
+                        "parts": [{"text": greeting_text}]
                     }],
                     "turnComplete": True
                 }
@@ -398,6 +347,18 @@ async def handle_call(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 
             total = (time.time() - t_start) * 1000
             print(f"[PreWarm] 🚀 FULLY READY in {total:.0f}ms!")
+            
+            # Log Performance Metric (Suggestion #5)
+            asyncio.create_task(post_json(
+                f"{LARAVEL_BASE_URL}/api/bridge/log-performance",
+                {
+                    "session_id": call_uuid,
+                    "latency_ms": total,
+                    "provider": "Gemini Live 2.5",
+                    "status": "ready"
+                }
+            ))
+            
             vertex_ready.set()
 
         except asyncio.TimeoutError:

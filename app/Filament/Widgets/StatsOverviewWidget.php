@@ -41,45 +41,41 @@ class StatsOverviewWidget extends BaseWidget
         $todayMinutes    = round($todaySeconds / 60, 1);
         $totalMinutes    = round($totalSeconds / 60, 1);
 
+        $syncedRequests  = Schema::hasTable('service_requests') ? ServiceRequest::where('crm_sync_status', 'synced')->count() : 0;
+        $syncRate = $totalRequests > 0 ? round(($syncedRequests / $totalRequests) * 100, 1) : 0;
+
         return [
-            // ১. মোট Service Requests (Live Calls থেকে আসা)
-            Stat::make('📋 সার্ভিস রিকোয়েস্ট', $totalRequests)
-                ->description("আজকে: {$todayRequests}টি | পেন্ডিং: {$pendingRequests}টি")
+            Stat::make('Total Service Requests', $totalRequests)
+                ->description("Today: {$todayRequests} | Pending: {$pendingRequests}")
                 ->descriptionIcon('heroicon-m-phone-arrow-down-left')
                 ->color('info')
                 ->chart([$totalRequests - $todayRequests, $todayRequests]),
 
-            // ২. পেন্ডিং Service Requests (Action দরকার)
-            Stat::make('⏳ পেন্ডিং রিকোয়েস্ট', $pendingRequests)
-                ->description("মোট {$totalRequests}টির মধ্যে")
-                ->descriptionIcon('heroicon-m-clock')
-                ->color($pendingRequests > 5 ? 'danger' : 'warning')
-                ->url('/admin/service-requests?tableFilters[status][value]=Pending'),
+            Stat::make('CRM Sync Success', $syncRate . '%')
+                ->description("{$syncedRequests} synced successfully")
+                ->descriptionIcon('heroicon-m-cloud-arrow-up')
+                ->color($syncRate > 80 ? 'success' : 'warning'),
 
-            // ৩. মোট AI টিকেট (Manual + Auto Created)
-            Stat::make('🎫 এআই টিকেটসমূহ', $totalTickets)
-                ->description("আজকে: {$todayTickets}টি | পেন্ডিং: {$pendingTickets}টি")
+            Stat::make('AI Tickets', $totalTickets)
+                ->description("Today: {$todayTickets} | Resolved: {$resolvedTickets}")
                 ->descriptionIcon('heroicon-m-ticket')
                 ->color('primary')
                 ->chart([$totalTickets - $todayTickets, $todayTickets]),
 
-            // ৪. একটিভ IVR সার্ভিস
-            Stat::make('📞 একটিভ IVR সার্ভিস', $activeIvr)
-                ->description("মোট {$totalIvr}টির মধ্যে {$activeIvr}টি চলছে")
-                ->descriptionIcon('heroicon-m-phone')
-                ->color('success'),
-
-            // ৫. আজকের কল + মিনিট
-            Stat::make('📲 আজকের কল', $todayCalls)
-                ->description("কথার সময়: {$todayMinutes} মিনিট | মিসড: {$missedCalls}")
+            Stat::make('Today\'s Calls', $todayCalls)
+                ->description("Minutes: {$todayMinutes}m | Missed: {$missedCalls}")
                 ->descriptionIcon('heroicon-m-phone-arrow-down-left')
                 ->color($missedCalls > 0 ? 'danger' : 'success'),
 
-            // ৬. লাইফটাইম মিনিট
-            Stat::make('⏱️ মোট কথার সময়', $totalMinutes . ' মিনিট')
-                ->description("মোট {$totalCalls}টি কলে")
+            Stat::make('Lifetime Talk Time', $totalMinutes . ' min')
+                ->description("Across {$totalCalls} total calls")
                 ->descriptionIcon('heroicon-m-clock')
                 ->color('info'),
+
+            Stat::make('Active IVR Routes', $activeIvr)
+                ->description("{$activeIvr} out of {$totalIvr} active")
+                ->descriptionIcon('heroicon-m-signal')
+                ->color('success'),
         ];
     }
 }

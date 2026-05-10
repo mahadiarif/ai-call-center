@@ -20,6 +20,10 @@ class AiTicketResource extends Resource
 {
     protected static ?string $model = AiTicket::class;
 
+    protected static ?string $navigationGroup = '📞 Call Operations';
+    protected static ?int $navigationSort = 2;
+    protected static ?string $navigationLabel = "AI Tickets";
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
     public static function form(Schema $schema): Schema
