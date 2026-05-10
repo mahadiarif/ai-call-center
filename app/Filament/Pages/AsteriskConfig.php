@@ -12,7 +12,7 @@ class AsteriskConfig extends Page
     protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-adjustments-horizontal';
     protected static string | \UnitEnum | null $navigationGroup = '🛡️ System Management';
     protected static ?string $navigationLabel = 'Asterisk Config';
-    protected static string $view = 'filament.pages.asterisk-config';
+    protected string $view = 'filament.pages.asterisk-config';
     protected static ?int $navigationSort = 100;
 
     public $sipConfig;
