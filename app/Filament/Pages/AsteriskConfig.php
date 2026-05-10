@@ -17,50 +17,38 @@ class AsteriskConfig extends Page
 
     public $sipConfig;
     public $extensionsConfig;
+    public $pjsipConfig;
     
-    // ফাইল পাথগুলো এখানে সেট করুন
     protected $sipPath = '/etc/asterisk/sip.conf';
     protected $extensionsPath = '/etc/asterisk/extensions.conf';
+    protected $pjsipPath = '/etc/asterisk/pjsip.conf';
 
     public function mount()
     {
-        // ফাইল না থাকলে .env বা ডিফল্ট পাথ চেক করার অপশন রাখা যেতে পারে
-        $this->sipPath = config('asterisk.sip_path', $this->sipPath);
-        $this->extensionsPath = config('asterisk.extensions_path', $this->extensionsPath);
-
         $this->loadConfigs();
     }
 
     public function loadConfigs()
     {
-        try {
-            if (File::exists($this->sipPath) && File::isReadable($this->sipPath)) {
-                $this->sipConfig = File::get($this->sipPath);
-            } else {
-                $this->sipConfig = "; [ERROR] sip.conf is not readable. \n; Run: sudo chown www-data:www-data {$this->sipPath} && sudo chmod 664 {$this->sipPath}";
-            }
+        $this->sipConfig = $this->readFile($this->sipPath, 'sip.conf');
+        $this->extensionsConfig = $this->readFile($this->extensionsPath, 'extensions.conf');
+        $this->pjsipConfig = $this->readFile($this->pjsipPath, 'pjsip.conf');
+    }
 
-            if (File::exists($this->extensionsPath) && File::isReadable($this->extensionsPath)) {
-                $this->extensionsConfig = File::get($this->extensionsPath);
-            } else {
-                $this->extensionsConfig = "; [ERROR] extensions.conf is not readable. \n; Run: sudo chown www-data:www-data {$this->extensionsPath} && sudo chmod 664 {$this->extensionsPath}";
-            }
-        } catch (\Exception $e) {
-            $this->sipConfig = "; Error loading config: " . $e->getMessage();
-            $this->extensionsConfig = "; Error loading config: " . $e->getMessage();
+    protected function readFile($path, $name)
+    {
+        if (File::exists($path) && File::isReadable($path)) {
+            return File::get($path);
         }
+        return "; [ERROR] {$name} is not readable or not found. \n; Run: sudo chown www-data:www-data {$path} && sudo chmod 664 {$path}";
     }
 
     public function saveConfigs()
     {
         try {
-            if (!is_writable(dirname($this->sipPath)) || (File::exists($this->sipPath) && !is_writable($this->sipPath))) {
-                throw new \Exception("File or Directory is not writable. Run: sudo chown www-data:www-data {$this->sipPath}");
-            }
-
             File::put($this->sipPath, $this->sipConfig);
             File::put($this->extensionsPath, $this->extensionsConfig);
-
+            File::put($this->pjsipPath, $this->pjsipConfig);
             Notification::make()->title('Configs Saved Successfully!')->success()->send();
         } catch (\Exception $e) {
             Notification::make()->title('Error Saving Configs')->body($e->getMessage())->danger()->send();
@@ -69,19 +57,13 @@ class AsteriskConfig extends Page
 
     public function reloadAsterisk($type = 'all')
     {
-        try {
-            if ($type === 'sip') {
-                shell_exec('sudo asterisk -rx "sip reload"');
-                Notification::make()->title('SIP Reloaded!')->success()->send();
-            } elseif ($type === 'extensions') {
-                shell_exec('sudo asterisk -rx "dialplan reload"');
-                Notification::make()->title('Dialplan Reloaded!')->success()->send();
-            } else {
-                shell_exec('sudo asterisk -rx "core reload"');
-                Notification::make()->title('Asterisk Fully Reloaded!')->success()->send();
-            }
-        } catch (\Exception $e) {
-            Notification::make()->title('Reload Failed')->body('Check sudo permissions for www-data.')->danger()->send();
-        }
+        $cmd = match($type) {
+            'sip' => 'sip reload',
+            'pjsip' => 'pjsip reload',
+            'extensions' => 'dialplan reload',
+            default => 'core reload',
+        };
+        shell_exec("sudo asterisk -rx \"{$cmd}\"");
+        Notification::make()->title(ucfirst($type) . ' Reloaded!')->success()->send();
     }
 }
